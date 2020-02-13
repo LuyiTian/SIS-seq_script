@@ -1,0 +1,573 @@
+---
+title: "DC regulation network"
+output: html_notebook
+---
+
+```{r}
+library(netbiov)
+library(GGally)
+source("http://michael.hahsler.net/SMU/ScientificCompR/code/map.R")
+set.seed(6666666)
+```
+
+
+```{r}
+norm_fate = t(normalized)
+norm_fate_cDC1 = cbind(norm_fate,as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")])[,1])
+norm_fate_cDC1 = norm_fate
+#colnames(norm_fate_cDC1) = c(colnames(norm_fate_cDC1)[-ncol(norm_fate_cDC1)],"cDC1 Fate")
+
+#norm_fate_cDC1 = norm_fate_cDC1[norm_fate_cDC1[,"cDC1 Fate"]>0.2^(1/3),]
+norm_corr = cor(norm_fate_cDC1)
+norm_corr_k = norm_corr^3
+#norm_corr_k[rownames(norm_corr_k)=="cDC1 Fate",] = norm_corr[rownames(norm_corr_k)=="cDC1 Fate",]
+#norm_corr_k[,colnames(norm_corr_k)=="cDC1 Fate"] = norm_corr[,colnames(norm_corr_k)=="cDC1 Fate"]
+
+norm_corr_k[norm_corr_k>-0.15 & norm_corr_k<0.18] = 0
+
+norm_corr_k = norm_corr_k[(colSums(abs(norm_corr_k))>1),(colSums(abs(norm_corr_k))>1)]
+#norm_corr_k = norm_corr_k[norm_corr_k[,"cDC1 Fate"]>0.17,norm_corr_k["cDC1 Fate",]>0.17]
+norm_corr_k[norm_corr_k==1] = 0
+
+cDC1_corr_k = norm_corr_k[rownames(norm_corr_k) %in% c(cDC1_sel$gene_names[cDC1_sel$regulatory_genes=="Yes"],"cDC1 Fate"),colnames(norm_corr_k) %in% c(cDC1_sel$gene_names[cDC1_sel$regulatory_genes=="Yes"])]
+cDC1_corr_k = cDC1_corr_k[rowSums(abs(cDC1_corr_k)>0)>2,colSums(abs(cDC1_corr_k)>0)>2]
+
+#cDC1_corr_k = cDC1_corr_k[!(rownames(cDC1_corr_k) == "cDC1 Fate"),!(colnames(cDC1_corr_k) == "cDC1 Fate")]
+
+cDC1_corr_graph = graph_from_adjacency_matrix(cDC1_corr_k,mode="undirected",weighted=T)
+```
+
+
+```{r}
+SISseq_genes = cDC1_sel$gene_names[cDC1_sel$overlap=="cDC1_SISeq"]
+v_col = ifelse(rownames(cDC1_corr_k) %in% SISseq_genes, "#F67D80","grey")
+v_col[rownames(cDC1_corr_k)=="cDC1 Fate"] = "red"
+
+e_col = ifelse(E(cDC1_corr_graph)$weight > 0, "red","blue")
+for (i in 1:length(E(cDC1_corr_graph))){
+  if("cDC1 Fate" %in% V(cDC1_corr_graph)[ inc(i) ]$name){
+    e_col[i] = "grey"
+  }
+}
+
+plot(cDC1_corr_graph, vertex.size=15, edge.width=abs(E(cDC1_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col,layout=layout.fruchterman.reingold(cDC1_corr_graph, niter=1000,area=5*vcount(cDC1_corr_graph)^2),
+        vertex.color=map(degree(cDC1_corr_graph),c(1,2)))
+
+#clp <- cluster_optimal(cDC1_corr_graph)
+#class(clp)
+### At optimal_modularity.c:85 : GLPK is not available, Unimplemented function call
+
+pdf("cDC1_fate_network.pdf",width = 10,height = 10)
+plot.igraph(cDC1_corr_graph,vertex.size=12, edge.width=abs(E(cDC1_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+dev.off()
+```
+
+```{r}
+pdf("cDC1_fate_network.ggnet2.FULL.pdf")
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=15,legend.position = "none",label.size=5,edge.size=0.15)
+dev.off()
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=15,legend.position = "none",label.size=5,edge.size=0.15)
+```
+
+```{r}
+library(RISmed)
+search_str = "((_GE_[Title/Abstract]) AND dendritic cells[Title/Abstract]) AND (development[Title/Abstract] OR differentiation[Title/Abstract]) "
+ff =function(x){QueryCount(EUtilsSummary(gsub("_GE_",x,search_str)))}
+
+ref_cnt = unlist(lapply(V(cDC1_corr_graph)$name,ff))
+names(ref_cnt) = V(cDC1_corr_graph)$name
+
+have_paper = names(ref_cnt)[ref_cnt>0]
+
+V(cDC1_corr_graph)$name[!(V(cDC1_corr_graph)$name %in% have_paper)] = " "
+ref_cnt
+```
+
+```{r}
+pdf("cDC1_fate_network.ggnet2.pdf")
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=10,legend.position = "none",label.size=9,edge.size=0.15)
+dev.off()
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=10,legend.position = "none",label.size=9,edge.size=0.15)#+theme(plot.margin = unit(c(0, 0, 0, 0), "mm"))
+```
+
+
+```{r}
+norm_fate = t(normalized)
+norm_fate_cDC1 = cbind(norm_fate,as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")])[,1])
+norm_fate_cDC1 = norm_fate
+#colnames(norm_fate_cDC1) = c(colnames(norm_fate_cDC1)[-ncol(norm_fate_cDC1)],"cDC1 Fate")
+
+#norm_fate_cDC1 = norm_fate_cDC1[norm_fate_cDC1[,"cDC1 Fate"]>0.2^(1/3),]
+norm_corr = cor(norm_fate_cDC1)
+norm_corr_k = norm_corr^3
+#norm_corr_k[rownames(norm_corr_k)=="cDC1 Fate",] = norm_corr[rownames(norm_corr_k)=="cDC1 Fate",]
+#norm_corr_k[,colnames(norm_corr_k)=="cDC1 Fate"] = norm_corr[,colnames(norm_corr_k)=="cDC1 Fate"]
+
+norm_corr_k[norm_corr_k>-0.15 & norm_corr_k<0.15] = 0
+
+norm_corr_k = norm_corr_k[(colSums(abs(norm_corr_k))>1),(colSums(abs(norm_corr_k))>1)]
+#norm_corr_k = norm_corr_k[norm_corr_k[,"cDC1 Fate"]>0.17,norm_corr_k["cDC1 Fate",]>0.17]
+norm_corr_k[norm_corr_k==1] = 0
+
+cDC1_corr_k = norm_corr_k[rownames(norm_corr_k) %in% c(cDC2_sel$gene_names[cDC2_sel$regulatory_genes=="Yes"]),colnames(norm_corr_k) %in% c(cDC2_sel$gene_names[cDC2_sel$regulatory_genes=="Yes"])]
+cDC1_corr_k = cDC1_corr_k[rowSums(abs(cDC1_corr_k)>0)>2,colSums(abs(cDC1_corr_k)>0)>2]
+
+#cDC1_corr_k = cDC1_corr_k[!(rownames(cDC1_corr_k) == "cDC1 Fate"),!(colnames(cDC1_corr_k) == "cDC1 Fate")]
+
+cDC1_corr_graph = graph_from_adjacency_matrix(cDC1_corr_k,mode="undirected",weighted=T)
+```
+
+
+```{r}
+SISseq_genes = cDC2_sel$gene_names[cDC2_sel$overlap=="cDC2_SISeq"]
+v_col = ifelse(rownames(cDC1_corr_k) %in% SISseq_genes, "#F67D80","grey")
+v_col[rownames(cDC1_corr_k)=="cDC1 Fate"] = "red"
+
+e_col = ifelse(E(cDC1_corr_graph)$weight > 0, "red","blue")
+for (i in 1:length(E(cDC1_corr_graph))){
+  if("cDC1 Fate" %in% V(cDC1_corr_graph)[ inc(i) ]$name){
+    e_col[i] = "grey"
+  }
+}
+
+plot(cDC1_corr_graph, vertex.size=15, edge.width=abs(E(cDC1_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col,layout=layout.fruchterman.reingold(cDC1_corr_graph, niter=1000,area=5*vcount(cDC1_corr_graph)^2),
+        vertex.color=map(degree(cDC1_corr_graph),c(1,2)))
+
+pdf("cDC1_fate_network.pdf",width = 10,height = 10)
+plot.igraph(cDC1_corr_graph, vertex.size=12, edge.width=abs(E(cDC1_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+dev.off()
+```
+
+```{r}
+pdf("cDC2_fate_network.ggnet2.FULL.pdf")
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=15,legend.position = "none",label.size=5,edge.size=0.15)
+dev.off()
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=15,legend.position = "none",label.size=5,edge.size=0.15)
+```
+
+```{r}
+library(RISmed)
+search_str = "((_GE_[Title/Abstract]) AND dendritic cells[Title/Abstract]) AND (development[Title/Abstract] OR differentiation[Title/Abstract]) "
+ff =function(x){QueryCount(EUtilsSummary(gsub("_GE_",x,search_str)))}
+
+ref_cnt = unlist(lapply(V(cDC1_corr_graph)$name,ff))
+names(ref_cnt) = V(cDC1_corr_graph)$name
+
+have_paper = names(ref_cnt)[ref_cnt>0]
+
+V(cDC1_corr_graph)$name[!(V(cDC1_corr_graph)$name %in% have_paper)] = " "
+ref_cnt
+```
+
+```{r}
+pdf("cDC2_fate_network.ggnet2.pdf")
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=10,legend.position = "none",label.size=9,edge.size=0.15)
+dev.off()
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=10,legend.position = "none",label.size=9,edge.size=0.15)#+theme(plot.margin = unit(c(0, 0, 0, 0), "mm"))
+```
+
+
+
+
+```{r}
+norm_fate = t(normalized)
+norm_fate_cDC1 = cbind(norm_fate,as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")])[,1])
+norm_fate_cDC1 = norm_fate
+#colnames(norm_fate_cDC1) = c(colnames(norm_fate_cDC1)[-ncol(norm_fate_cDC1)],"cDC1 Fate")
+
+#norm_fate_cDC1 = norm_fate_cDC1[norm_fate_cDC1[,"cDC1 Fate"]>0.2^(1/3),]
+norm_corr = cor(norm_fate_cDC1)
+norm_corr_k = norm_corr^3
+#norm_corr_k[rownames(norm_corr_k)=="cDC1 Fate",] = norm_corr[rownames(norm_corr_k)=="cDC1 Fate",]
+#norm_corr_k[,colnames(norm_corr_k)=="cDC1 Fate"] = norm_corr[,colnames(norm_corr_k)=="cDC1 Fate"]
+
+norm_corr_k[norm_corr_k>-0.19 & norm_corr_k<0.19] = 0
+
+norm_corr_k = norm_corr_k[(colSums(abs(norm_corr_k))>1),(colSums(abs(norm_corr_k))>1)]
+#norm_corr_k = norm_corr_k[norm_corr_k[,"cDC1 Fate"]>0.17,norm_corr_k["cDC1 Fate",]>0.17]
+norm_corr_k[norm_corr_k==1] = 0
+
+cDC1_corr_k = norm_corr_k[rownames(norm_corr_k) %in% c(pDC_sel$gene_names[pDC_sel$regulatory_genes=="Yes"]),colnames(norm_corr_k) %in% c(pDC_sel$gene_names[pDC_sel$regulatory_genes=="Yes"])]
+cDC1_corr_k = cDC1_corr_k[rowSums(abs(cDC1_corr_k)>0)>2,colSums(abs(cDC1_corr_k)>0)>2]
+
+#cDC1_corr_k = cDC1_corr_k[!(rownames(cDC1_corr_k) == "cDC1 Fate"),!(colnames(cDC1_corr_k) == "cDC1 Fate")]
+
+cDC1_corr_graph = graph_from_adjacency_matrix(cDC1_corr_k,mode="undirected",weighted=T)
+```
+
+
+```{r}
+SISseq_genes = pDC_sel$gene_names[pDC_sel$overlap=="pDC_SISeq"]
+v_col = ifelse(rownames(cDC1_corr_k) %in% SISseq_genes, "#F67D80","grey")
+v_col[rownames(cDC1_corr_k)=="cDC1 Fate"] = "red"
+
+e_col = ifelse(E(cDC1_corr_graph)$weight > 0, "red","blue")
+for (i in 1:length(E(cDC1_corr_graph))){
+  if("cDC1 Fate" %in% V(cDC1_corr_graph)[ inc(i) ]$name){
+    e_col[i] = "grey"
+  }
+}
+
+plot(cDC1_corr_graph, vertex.size=15, edge.width=abs(E(cDC1_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col,layout=layout.fruchterman.reingold(cDC1_corr_graph, niter=1000,area=5*vcount(cDC1_corr_graph)^2),
+        vertex.color=map(degree(cDC1_corr_graph),c(1,2)))
+
+pdf("cDC1_fate_network.pdf",width = 10,height = 10)
+plot.igraph(cDC1_corr_graph, vertex.size=12, edge.width=abs(E(cDC1_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+dev.off()
+```
+
+```{r}
+pdf("pDC_fate_network.ggnet2.FULL.pdf")
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=15,legend.position = "none",label.size=5,edge.size=0.15)
+dev.off()
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=15,legend.position = "none",label.size=5,edge.size=0.15)
+```
+
+```{r}
+library(RISmed)
+search_str = "((_GE_[Title/Abstract]) AND dendritic cells[Title/Abstract]) AND (development[Title/Abstract] OR differentiation[Title/Abstract]) "
+ff =function(x){QueryCount(EUtilsSummary(gsub("_GE_",x,search_str)))}
+
+ref_cnt = unlist(lapply(V(cDC1_corr_graph)$name,ff))
+names(ref_cnt) = V(cDC1_corr_graph)$name
+
+have_paper = names(ref_cnt)[ref_cnt>0]
+
+V(cDC1_corr_graph)$name[!(V(cDC1_corr_graph)$name %in% have_paper)] = " "
+ref_cnt
+```
+
+```{r}
+pdf("pDC_fate_network.ggnet2.pdf")
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=10,legend.position = "none",label.size=9,edge.size=0.15)
+dev.off()
+ggnet2(cDC1_corr_graph,mode = "fruchtermanreingold",layout.par =list(niter=2000,area=1000,repulse.rad=100),label = TRUE,color=v_col,
+       #shape=v_shp,
+       size=10,legend.position = "none",label.size=9,edge.size=0.15)#+theme(plot.margin = unit(c(0, 0, 0, 0), "mm"))
+```
+
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+```{r}
+norm_fate = t(normalized)
+norm_fate_cDC2 = cbind(norm_fate,as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")])[,2])
+colnames(norm_fate_cDC2) = c(colnames(norm_fate_cDC2)[-ncol(norm_fate_cDC2)],"cDC2 Fate")
+
+norm_corr = cor(norm_fate_cDC2)
+norm_corr_k = norm_corr^3
+norm_corr_k[rownames(norm_corr_k)=="cDC2 Fate",] = norm_corr[rownames(norm_corr_k)=="cDC2 Fate",]
+norm_corr_k[,colnames(norm_corr_k)=="cDC2 Fate"] = norm_corr[,colnames(norm_corr_k)=="cDC2 Fate"]
+
+norm_corr_k[norm_corr_k>-0.1 & norm_corr_k<0.1] = 0
+
+norm_corr_k = norm_corr_k[(colSums(abs(norm_corr_k))>1),(colSums(abs(norm_corr_k))>1)]
+norm_corr_k[norm_corr_k==1] = 0
+
+cDC2_corr_k = norm_corr_k[rownames(norm_corr_k) %in% c(cDC2_sel$gene_names[cDC2_sel$regulatory_genes=="Yes"],"cDC2 Fate"),colnames(norm_corr_k) %in% c(cDC2_sel$gene_names[cDC2_sel$regulatory_genes=="Yes"],"cDC2 Fate")]
+cDC2_corr_k = cDC2_corr_k[rowSums(abs(cDC2_corr_k>0))>1,colSums(abs(cDC2_corr_k>0))>1]
+
+cDC2_corr_graph = graph_from_adjacency_matrix(cDC2_corr_k,mode="undirected",weighted=T)
+```
+
+
+```{r}
+SISseq_genes = cDC2_sel$gene_names[cDC2_sel$overlap=="cDC2_SISeq"]
+v_col = ifelse(rownames(cDC2_corr_k) %in% SISseq_genes, "orange","grey")
+v_col[rownames(cDC2_corr_k)=="cDC2 Fate"] = "red"
+
+e_col = ifelse(E(cDC2_corr_graph)$weight > 0, "red","blue")
+for (i in 1:length(E(cDC2_corr_graph))){
+  if("cDC2 Fate" %in% V(cDC2_corr_graph)[ inc(i) ]$name){
+    e_col[i] = "grey"
+  }
+}
+
+plot.igraph(cDC2_corr_graph, vertex.size=15, edge.width=abs(E(cDC2_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+
+pdf("cDC2_fate_network.pdf",width = 10,height = 10)
+plot.igraph(cDC2_corr_graph, vertex.size=12, edge.width=abs(E(cDC2_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+dev.off()
+```
+
+```{r}
+search_str = "((_GE_[Title/Abstract]) AND dendritic cells[Title/Abstract]) AND (development[Title/Abstract] OR differentiation[Title/Abstract]) "
+ff =function(x){QueryCount(EUtilsSummary(gsub("_GE_",x,search_str)))}
+
+ref_cnt = unlist(lapply(V(cDC2_corr_graph)$name[-length(V(cDC2_corr_graph)$name)],ff))
+names(ref_cnt) = V(cDC2_corr_graph)$name[-length(V(cDC2_corr_graph)$name)]
+
+have_paper = names(ref_cnt)[ref_cnt>1]
+
+v_shp = ifelse(V(cDC2_corr_graph)$name %in% have_paper, 15, 19)
+ref_cnt
+```
+
+
+
+```{r}
+pdf("cDC2_fate_network.ggnet2.pdf",width = 5,height = 5)
+ggnet2(cDC2_corr_graph,label = TRUE,color=v_col,shape=v_shp,size=map(degree(cDC2_corr_graph),c(10,20)),legend.position = "none",label.size=2)
+dev.off()
+```
+
+
+```{r}
+norm_fate = t(normalized)
+norm_fate_pDC = cbind(norm_fate,as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")])[,3])
+colnames(norm_fate_pDC) = c(colnames(norm_fate_pDC)[-ncol(norm_fate_pDC)],"pDC Fate")
+
+norm_corr = cor(norm_fate_pDC)
+norm_corr_k = norm_corr^3
+norm_corr_k[rownames(norm_corr_k)=="pDC Fate",] = norm_corr[rownames(norm_corr_k)=="pDC Fate",]
+norm_corr_k[,colnames(norm_corr_k)=="pDC Fate"] = norm_corr[,colnames(norm_corr_k)=="pDC Fate"]
+
+norm_corr_k[norm_corr_k>-0.1 & norm_corr_k<0.1] = 0
+
+norm_corr_k = norm_corr_k[(colSums(abs(norm_corr_k))>1),(colSums(abs(norm_corr_k))>1)]
+norm_corr_k = norm_corr_k[norm_corr_k[,"pDC Fate"]>0.15,norm_corr_k["pDC Fate",]>0.15]
+norm_corr_k[norm_corr_k==1] = 0
+
+pDC_corr_k = norm_corr_k[rownames(norm_corr_k) %in% c(pDC_sel$gene_names[pDC_sel$regulatory_genes=="Yes"],"pDC Fate"),colnames(norm_corr_k) %in% c(pDC_sel$gene_names[pDC_sel$regulatory_genes=="Yes"],"pDC Fate")]
+pDC_corr_k = pDC_corr_k[rowSums(abs(pDC_corr_k)>0)>1,colSums(abs(pDC_corr_k)>0)>1]
+
+pDC_corr_graph = graph_from_adjacency_matrix(pDC_corr_k,mode="undirected",weighted=T)
+```
+
+
+```{r}
+SISseq_genes = pDC_sel$gene_names[pDC_sel$overlap=="pDC_SISeq"]
+v_col = ifelse(rownames(pDC_corr_k) %in% SISseq_genes, "orange","grey")
+v_col[rownames(pDC_corr_k)=="pDC Fate"] = "red"
+
+e_col = ifelse(E(pDC_corr_graph)$weight > 0, "red","blue")
+for (i in 1:length(E(pDC_corr_graph))){
+  if("pDC Fate" %in% V(pDC_corr_graph)[ inc(i) ]$name){
+    e_col[i] = "grey"
+  }
+}
+
+plot.igraph(pDC_corr_graph, vertex.size=15, edge.width=abs(E(pDC_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+
+pdf("pDC_fate_network.pdf",width = 10,height = 10)
+plot.igraph(pDC_corr_graph, vertex.size=12, edge.width=abs(E(pDC_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+dev.off()
+```
+
+```{r}
+search_str = "((_GE_[Title/Abstract]) AND dendritic cells[Title/Abstract]) AND (development[Title/Abstract] OR differentiation[Title/Abstract]) "
+ff =function(x){QueryCount(EUtilsSummary(gsub("_GE_",x,search_str)))}
+
+ref_cnt = unlist(lapply(V(pDC_corr_graph)$name[-length(V(pDC_corr_graph)$name)],ff))
+names(ref_cnt) = V(pDC_corr_graph)$name[-length(V(pDC_corr_graph)$name)]
+
+have_paper = names(ref_cnt)[ref_cnt>1]
+
+v_shp = ifelse(V(pDC_corr_graph)$name %in% have_paper, 15, 19)
+ref_cnt
+```
+
+```{r}
+pdf("pDC_fate_network.ggnet2.pdf",width = 5,height = 5)
+ggnet2(pDC_corr_graph,mode="kamadakawai",label = TRUE,color=v_col,shape=v_shp,size=map(degree(pDC_corr_graph),c(10,20)),legend.position = "none",label.size=2.5)
+dev.off()
+```
+
+
+# both positive and negative
+
+```{r}
+norm_fate = t(normalized)
+norm_fate_cDC1 = cbind(norm_fate,as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")])[,1])
+colnames(norm_fate_cDC1) = c(colnames(norm_fate_cDC1)[-ncol(norm_fate_cDC1)],"cDC1 Fate")
+
+norm_corr = cor(norm_fate_cDC1)
+norm_corr_k = norm_corr^3
+norm_corr_k[rownames(norm_corr_k)=="cDC1 Fate",] = norm_corr[rownames(norm_corr_k)=="cDC1 Fate",]
+norm_corr_k[,colnames(norm_corr_k)=="cDC1 Fate"] = norm_corr[,colnames(norm_corr_k)=="cDC1 Fate"]
+
+norm_corr_k[norm_corr_k>-0.1 & norm_corr_k<0.15] = 0
+
+norm_corr_k = norm_corr_k[(colSums(abs(norm_corr_k))>1),(colSums(abs(norm_corr_k))>1)]
+norm_corr_k[norm_corr_k==1] = 0
+
+tmp = norm_corr_k["cDC1 Fate",]
+tmp = tmp[order(tmp)]
+seed_gene = c(names(tail(tmp,n=20)))
+
+seed_corr = c()
+
+for (g in seed_gene){
+  tmp = norm_corr_k[g,]
+  tmp = tmp[order(tmp)]
+  seed_corr = c(seed_corr, names(head(tmp,n=2)), names(tail(tmp,n=3)))
+}
+
+corr_genes = unique(c(seed_gene, seed_corr, "cDC1 Fate"))
+
+cDC1_corr_k = norm_corr_k[corr_genes,corr_genes]
+cDC1_corr_k = cDC1_corr_k[rowSums(abs(cDC1_corr_k)>0)>3,colSums(abs(cDC1_corr_k)>0)>3]
+
+cDC1_corr_graph = graph_from_adjacency_matrix(cDC1_corr_k,mode="undirected",weighted=T)
+```
+
+
+```{r}
+SISseq_genes = cDC1_sel$gene_names[cDC1_sel$overlap=="cDC1_SISeq"]
+v_col = ifelse(rownames(cDC1_corr_k) %in% SISseq_genes, "orange","grey")
+v_col[rownames(cDC1_corr_k)=="cDC1 Fate"] = "red"
+
+e_col = ifelse(E(cDC1_corr_graph)$weight > 0, "red","blue")
+#for (i in 1:length(E(cDC1_corr_graph))){
+#  if("cDC1 Fate" %in% V(cDC1_corr_graph)[ inc(i) ]$name){
+#    e_col[i] = "grey"
+#  }
+#}
+
+E(cDC1_corr_graph)$weight = abs(E(cDC1_corr_graph)$weight)
+
+plot.igraph(cDC1_corr_graph, vertex.size=15, edge.width=abs(E(cDC1_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+
+pdf("cDC1_fate_network_fate.pdf",width = 10,height = 10)
+plot.igraph(cDC1_corr_graph, vertex.size=15, edge.width=abs(E(cDC1_corr_graph)$weight)*8, 
+        edge.color=e_col,vertex.color=v_col)
+dev.off()
+```
+
+```{r}
+venn_int =venn(list(SIS_seq_genes=SIS_seq_genes,
+                    Blood=coexpressed_Blood,
+                    Nat=coexpressed_Nat),intersection=TRUE)
+sis_seq_only = attr(x = venn_int, "intersections")$SIS_seq_genes
+```
+
+
+
+```{r}
+ann_colors = list(
+  bias_cDC1 = c("#FFFFFF", "#FF7272"),
+  bias_cDC2 = c("#FFFFFF", "#74FF72"),
+  bias_pDC = c("#FFFFFF", "#7276FF"),
+  cDC1_Immgen=c("blue", "red"),
+  cDC2_Immgen=c("blue", "red"),
+  pDC_Immgen=c("blue", "red"),
+  CDP_Immgen=c("blue","red"),
+  SISseq=c("only in SIS-seq"="#EA506A","others"="#A3A5A6")
+)
+
+regulatory_genes = scPipe::get_genes_by_GO(returns="external_gene_name",
+                dataset="mmusculus_gene_ensembl",
+                go=c("GO:0006338", "GO:0003700"))
+
+library(Rmagic)
+library(pheatmap)
+tt_cnt = edgeR::cpm(allcounts1$counts)
+gm_cnt = log2(tt_cnt[rownames(allcounts1$counts) %in% unique(c(pDC_genes, cDC1_genes, cDC2_genes)), ]+1)
+gm_cnt = log2(tt_cnt[unique(rbind(pDC_sel,cDC1_sel, cDC2_sel)$gene_names), ]+1)
+gm_cnt = log2(tt_cnt+1)
+
+gm_cnt = gm_cnt[rowMeans(gm_cnt)<6 & rowSums(gm_cnt>0)<70,]
+tmp_col_anno = fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")]
+rownames(tmp_col_anno) = fate_anno_pDC$cell_name
+
+MAGIC_data = run_magic(t(gm_cnt), k=4,rescale_percent=0.99,t_diffusion=3)
+rownames(MAGIC_data) = colnames(gm_cnt)
+MAGIC_data = scale(MAGIC_data,center = TRUE, scale = TRUE)
+#MAGIC_data = MAGIC_data[,colSums(MAGIC_data) > 0]
+MAGIC_data[is.na(MAGIC_data)]=0
+mat = t(as.matrix(MAGIC_data))
+mat1 = mat[rownames(mat) %in% unique(c(V(cDC1_corr_graph)$name,V(cDC2_corr_graph)$name,V(pDC_corr_graph)$name,"Batf3","Irf4","Siglech","Gfi1","Tcf4","Id2","Irf8","Notch2","Zbtb46","Spib","Runx1")),]
+mat2 = mat1[rownames(mat1) %in% unique(c(regulatory_genes,"Batf3","Irf4","Siglech","Gfi1","Tcf4","Id2","Irf8","Notch2","Zbtb46","Spib","Runx1")),]
+
+#hc = hclust(dist(t(mat2)))
+#ct = cutree(hc, k = 5)
+
+#tsne_out = Rtsne::Rtsne(dist(t(mat2)),dim=1)
+
+row_anno = data.frame(SISseq=ifelse(rownames(mat2) %in% sis_seq_only,"only in SIS-seq","others"))
+rownames(row_anno) = rownames(mat2)
+
+pdf("pheatmap_sel_net_MAGIC_tSNE.pdf",height = 4,width = 6)
+
+pheatmap(mat2[,order(tsne_out$Y)],cluster_cols=FALSE,annotation_col=tmp_col_anno,annotation_colors=ann_colors,show_colnames=F,fontsize=5)
+
+dev.off()
+
+
+pdf("pheatmap_sel_net_MAGIC_cluster.pdf",height = 4,width = 6)
+
+phm = pheatmap(mat2,annotation_row = row_anno,scale = "column",cutree_cols = 8,annotation_col=tmp_col_anno,annotation_colors=ann_colors,show_colnames=F,fontsize=5)
+
+dev.off()
+
+#hc = hclust(dist(t(mat2)))
+ct = cutree(phm$tree_col, k = 8)
+tmp_col_anno_clu = cbind(tmp_col_anno,ct)
+
+pdf("pheatmap_sel_net_MAGIC_cluster_tmp.pdf",height = 4,width = 6)
+
+pheatmap(mat2,scale = "column",cutree_cols = 8, annotation_row = row_anno, annotation_col=tmp_col_anno_clu,annotation_colors=ann_colors,show_colnames=F,fontsize=5)
+
+dev.off()
+
+tmp_col_anno_clu$ct = as.factor(tmp_col_anno_clu$ct)
+agg = aggregate(. ~ct,data=tmp_col_anno_clu,mean)
+```
+
+```{r}
+pdf("id2_Tcf4.pdf")
+ggplot(data=NULL,aes(x=log2(allcounts1$counts["Id2",]+1),y=log2(allcounts1$counts["Tcf4",]+1),col=tmp_col_anno[,"bias_cDC1"]))+
+  geom_point()+
+  labs(x="Id2",y="Tcf4",col="bias_cDC1")+
+  theme_minimal()
+ggplot(data=NULL,aes(x=log2(allcounts1$counts["Id2",]+1),y=log2(allcounts1$counts["Tcf4",]+1),col=tmp_col_anno[,"bias_cDC2"]))+
+  geom_point()+
+  labs(x="Id2",y="Tcf4",col="bias_cDC2")+
+  theme_minimal()
+ggplot(data=NULL,aes(x=log2(allcounts1$counts["Id2",]+1),y=log2(allcounts1$counts["Tcf4",]+1),col=tmp_col_anno[,"bias_pDC"]))+
+  geom_point()+
+  labs(x="Id2",y="Tcf4",col="bias_pDC")+
+  theme_minimal()
+dev.off()
+```
+
+
+```{r}
+
+```
+

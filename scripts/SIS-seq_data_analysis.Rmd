@@ -1,0 +1,2318 @@
+---
+title: "DCCCCCCC"
+output: html_notebook
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(ggtern)
+library(matrixStats)
+library(plotly)
+get_dist = function(fate_anno, col=NA, scale=FALSE){
+  dist_sib = c()
+  dist_other = c()
+  tot_cnt = c()
+  tot_cnt2 = c()
+  fate_anno_pct = fate_anno
+  primer_idx = c()
+  fate_anno_pct[,c("cDC1","cDC2","pDC")] = fate_anno[,c("cDC1","cDC2","pDC")]/fate_anno$total_cells
+  if(is.na(col)){
+    col= c("cDC1","cDC2","pDC")
+  }
+  pct_dist = as.matrix(dist(fate_anno_pct[,col], method = "euclidean"))
+  
+  for (i in unique(fate_anno$index)){
+    if(sum(fate_anno_pct$index==i) == 2){
+      if(scale){
+        dist_sib = c(dist_sib, pct_dist[fate_anno_pct$index == i, fate_anno_pct$index == i][2,1]/(sum(fate_anno_pct[fate_anno_pct$index == i,col])))
+      }else{
+        dist_sib = c(dist_sib, pct_dist[fate_anno_pct$index == i, fate_anno_pct$index == i][2,1])
+      }
+      
+      dist_other = c(dist_other, 
+                     as.numeric(pct_dist[fate_anno_pct$index == i, !(fate_anno_pct$index == i)]) )
+      tot_cnt = c(tot_cnt, as.data.frame(fate_anno_pct[fate_anno_pct$index == i, "total_cells"])[1,])
+      tot_cnt2 = c(tot_cnt2, as.data.frame(fate_anno_pct[fate_anno_pct$index == i, "total_cells"])[2,])
+      primer_idx = c(primer_idx, i)
+    }
+  }
+  return(list(dist_sib=dist_sib,dist_other=dist_other,tot_cnt=tot_cnt,tot_cnt2=tot_cnt2,primer_idx=primer_idx))
+}
+
+get_dist2 = function(fate_anno, null_mean, null_sd, col=NA){
+  dist_sib = c()
+  dist_other = c()
+  tot_cnt = c()
+  tot_cnt2 = c()
+  primer_idx = c()
+  fate_anno_pct = fate_anno
+  fate_anno_pct[,c("cDC1","cDC2","pDC")] = fate_anno[,c("cDC1","cDC2","pDC")]/fate_anno$total_cells
+  if(is.na(col)){
+    col= c("cDC1","cDC2","pDC")
+  }
+  
+  for (i in unique(fate_anno_pct$index)){
+    if(sum(fate_anno_pct$index==i) == 2){
+      if(length(col) == 1){
+        dis1 = sum((fate_anno_pct[fate_anno_pct$index == i, col][1]-null_mean)/null_sd)
+        dis2 = sum((fate_anno_pct[fate_anno_pct$index == i, col][2]-null_mean)/null_sd)
+      }else{
+        dis1 = sum((fate_anno_pct[fate_anno_pct$index == i, col][1,]-null_mean)/null_sd)
+        dis2 = sum((fate_anno_pct[fate_anno_pct$index == i, col][2,]-null_mean)/null_sd)
+      }
+
+      dist_sib = c(dist_sib, abs(dis2-dis1))
+
+      
+      for (j in unique(fate_anno_pct$index)){
+        if (!(j == i)){
+          if(length(col) == 1){
+            dis1 = sum((fate_anno_pct[fate_anno_pct$index == i, col][1]-null_mean)/null_sd)
+            dis2 = sum((fate_anno_pct[fate_anno_pct$index == j, col][1]-null_mean)/null_sd)
+          }else{
+            dis1 = sum((fate_anno_pct[fate_anno_pct$index == i, col][1,]-null_mean)/null_sd)
+            dis2 = sum((fate_anno_pct[fate_anno_pct$index == j, col][1,]-null_mean)/null_sd)
+          }
+          dist_other = c(dist_other, abs(dis2-dis1))
+        }
+      }
+      tot_cnt = c(tot_cnt, as.data.frame(fate_anno_pct[fate_anno_pct$index == i, "total_cells"])[1,])
+      tot_cnt2 = c(tot_cnt2, as.data.frame(fate_anno_pct[fate_anno_pct$index == i, "total_cells"])[2,])
+      primer_idx = c(primer_idx, i)
+    }
+  }
+  return(list(dist_sib=dist_sib,dist_other=dist_other,tot_cnt=tot_cnt,tot_cnt2=tot_cnt2,primer_idx=primer_idx))
+}
+
+get_bias = function(fate_anno, null_mean, null_sd,raw=0){
+  bias_cDC1 = c()
+  bias_cDC2 = c()
+  bias_pDC = c()
+  primer_idx = c()
+
+  for (i in unique(fate_anno$index)){
+    tmp = sum(fate_anno[fate_anno$index == i, "cDC1"])/sum(fate_anno[fate_anno$index == i, "total_cells"])
+    bias_cDC1 = c(bias_cDC1, unname((tmp-raw*null_mean["cDC1_fill"])))
+
+    tmp = sum(fate_anno[fate_anno$index == i, "cDC2"])/sum(fate_anno[fate_anno$index == i, "total_cells"])
+    bias_cDC2 = c(bias_cDC2, unname((tmp-raw*null_mean["cDC2_fill"])))
+
+    tmp = sum(fate_anno[fate_anno$index == i, "pDC"])/sum(fate_anno[fate_anno$index == i, "total_cells"])
+    bias_pDC = c(bias_pDC, unname((tmp-raw*null_mean["pDC_fill"])))
+    primer_idx = c(primer_idx, i)
+  }
+  return(data.frame(bias_cDC1=bias_cDC1,bias_cDC2=bias_cDC2,bias_pDC=bias_pDC,primer_idx=primer_idx))
+}
+
+
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+
+```{r}
+load("~/Dropbox/research/sis_seq/clone_split/allcounts.rda")
+fc = fc[,colSums(fc)>10000]
+fc = fc[rowSums(fc)>10,]
+fc = fc[rowSums(fc>0)>2,]
+batch = rep("ILSGR0260r",ncol(fc))
+batch[grepl("^D9JS27",colnames(fc))] = "JS86"
+batch[grepl("^JS91",colnames(fc))] = "JS91"
+batch[grepl("^JS96",colnames(fc))] = "JS96"
+batch = as.factor(batch)
+```
+
+
+```{r}
+pca = prcomp(t(fc))
+plot(pca$x[,c(1,6)],col=batch)
+```
+
+
+```{r}
+library(org.Mm.eg.db)
+anno <- AnnotationDbi::select(org.Mm.eg.db, keys=rownames(fc), keytype="ENTREZID", column="SYMBOL")
+anno = anno[!duplicated(anno$ENTREZID),]
+anno = anno[match(rownames(fc),anno$ENTREZID),]
+
+anno$SYMBOL[is.na(anno$SYMBOL)] = anno$ENTREZID[is.na(anno$SYMBOL)]
+anno$SYMBOL[duplicated(anno$SYMBOL)] = anno$ENTREZID[duplicated(anno$SYMBOL)]
+rownames(fc) = anno$SYMBOL
+
+fc = fc[!grepl("^Gm",rownames(fc)),]
+fc = fc[!grepl("^Rpl",rownames(fc)),]
+fc = fc[!grepl("^Mt",rownames(fc)),]
+
+```
+
+```{r}
+fc1anno = read.table("clone_split/r_data/ilsgr_sample_anno Revised.txt", header=TRUE, sep="\t")
+fc2anno = read.table("clone_split/r_data/JS86-DZ11_anno Revised.txt", header=TRUE, sep="\t")
+### js91 = read.table("JS91_annotation.txt", header=TRUE, sep="\t")
+js91 = read.table("clone_split/r_data/JS91_sampleanno.txt", header=TRUE, sep="\t") #change from JS91_annotation to JS91_sampleanno
+js96 = read.table("clone_split/r_data/JS96_sampleanno.txt", header=TRUE, sep="\t")
+fc2anno$BamName = paste("D9JS27_BC", fc2anno[,1], "_R2.bam", sep="")
+colnames(js91)[5:7] = colnames(js96)[5:7]
+
+fc3anno = rbind(js91[,-8], js96)
+fc3anno$BamName = rep("", nrow(fc3anno))
+fc3anno$BamName[1:40] = paste("JS91_", substr(fc3anno[1:40,2],1,6), "_trimmed.bam", sep="")
+fc3anno$BamName[41:80] = paste("JS96_", substr(fc3anno[41:80,2],1,6), "_trimmed.bam", sep="")
+
+fc1anno = fc1anno[,c("BamName", "cDC1_Perc",  "cDC2_Perc",	"Plasmacytoids_Perc")]
+fc2anno = fc2anno[,c("BamName", "cDC1_Perc",  "cDC2_Perc",  "Plasmacytoids_Perc")]
+fc2anno$cDC1_Perc = fc2anno$cDC1_Perc/100. # scale the value to [0,1]
+fc2anno$cDC2_Perc = fc2anno$cDC2_Perc/100.
+fc2anno$Plasmacytoids_Perc = fc2anno$Plasmacytoids_Perc/100.
+fc3anno = fc3anno[,c("BamName", "cDC1_Perc",  "cDC2_Perc",  "Plasmacytoids_Perc")]
+fcanno = rbind(fc1anno, fc2anno, fc3anno)
+fcanno$BatchInfo = rep(c(1,2,3,4), each = 40)
+NA_samples = is.na(fcanno$cDC1_Perc)
+fcanno = fcanno[!NA_samples,]
+
+fcanno = fcanno[fcanno$BamName %in% colnames(fc),]
+fc = fc[,colnames(fc) %in% fcanno$BamName]
+fc = fc[,order(colnames(fc))]
+fcanno = fcanno[match(colnames(fc), fcanno$BamName),]
+```
+
+
+
+```{r}
+library(edgeR)
+library(scran)
+library(scater)
+
+sce <- SingleCellExperiment(assays=list(counts=fc))
+sce <- calculateQCMetrics(sce)
+sce <- computeSumFactors(sce, sizes=c(10,20,30,40,50))
+
+#allcounts <- convertTo(sce, type="edgeR")
+
+fate_bias = rep("Multi",nrow(fcanno))
+fate_bias[fcanno$cDC2_Perc > fcanno$cDC1_Perc & fcanno$cDC2_Perc > fcanno$Plasmacytoids_Perc] = "cDC2"
+fate_bias[fcanno$cDC1_Perc > fcanno$cDC2_Perc & fcanno$cDC1_Perc > fcanno$Plasmacytoids_Perc] = "cDC1"
+fate_bias[fcanno$Plasmacytoids_Perc > fcanno$cDC1_Perc & fcanno$Plasmacytoids_Perc >fcanno$cDC2_Perc] = "pDC"
+fcanno$BatchInfo = as.factor(fcanno$BatchInfo)
+design_bias = model.matrix(~ 0+fate_bias+fcanno$BatchInfo)
+
+colnames(design_bias) = make.names(colnames(design_bias))
+
+contrasts = makeContrasts(
+    cDC1_vs_cDC2=fate_biascDC1-fate_biascDC2, 
+    cDC1_vs_pDC=fate_biascDC1-fate_biaspDC, 
+    cDC2_vs_pDC=fate_biascDC2-fate_biaspDC, 
+    levels=colnames(design_bias))
+
+allcounts = DGEList(counts=fc)
+
+
+all_cnt = estimateDisp(allcounts, design_bias, robust=TRUE)
+
+fit = glmFit(all_cnt, design_bias)
+# Run likelihood ratio tests
+lrt = glmLRT(fit,contrast=contrasts[,1])
+cDC1_vs_cDC2 = topTags(lrt,n=Inf)
+
+lrt = glmLRT(fit,contrast=contrasts[,2])
+cDC1_vs_pDC = topTags(lrt,n=Inf)
+
+lrt = glmLRT(fit,contrast=contrasts[,3])
+cDC2_vs_pDC = topTags(lrt,n=Inf)
+
+```
+
+
+```{r}
+library(readr)
+immgen_cDC1_cDC2 <- read_csv("~/Dropbox/research/sis_seq/immgen/cDC1_cDC2.csv")
+immgen_cDC2_pDC <- read_csv("~/Dropbox/research/sis_seq/immgen/cDC2_pDC.csv")
+immgen_cDC1_pDC <- read_csv("~/Dropbox/research/sis_seq/immgen/cDC1_pDC.csv")
+```
+
+```{r}
+barcodeplot(cDC1_vs_cDC2@.Data[[1]]$logFC, 
+            index= which(rownames(cDC1_vs_cDC2@.Data[[1]]) %in% immgen_cDC1_cDC2$Gene_Symbol[immgen_cDC1_cDC2$FC<1]),
+            index2= which(rownames(cDC1_vs_cDC2@.Data[[1]]) %in% immgen_cDC1_cDC2$Gene_Symbol[immgen_cDC1_cDC2$FC>1]),
+            main="cDC1_vs_cDC2")
+```
+
+
+```{r}
+barcodeplot(cDC2_vs_pDC@.Data[[1]]$logFC, 
+            index= which(rownames(cDC2_vs_pDC@.Data[[1]]) %in% immgen_cDC2_pDC$Gene_Symbol[immgen_cDC2_pDC$FC<1]),
+            index2= which(rownames(cDC2_vs_pDC@.Data[[1]]) %in% immgen_cDC2_pDC$Gene_Symbol[immgen_cDC2_pDC$FC>1]),
+            main="cDC2_vs_pDC")
+```
+
+
+```{r}
+barcodeplot(cDC1_vs_pDC@.Data[[1]]$logFC, 
+            index= which(rownames(cDC1_vs_pDC@.Data[[1]]) %in% immgen_cDC1_pDC$Gene_Symbol[immgen_cDC1_pDC$FC<1]),
+            index2= which(rownames(cDC1_vs_pDC@.Data[[1]]) %in% immgen_cDC1_pDC$Gene_Symbol[immgen_cDC1_pDC$FC>1]),
+            main="cDC1_vs_pDC")
+```
+
+
+```{r}
+sce <- normalize(sce)
+
+var.fit <- trendVar(sce, use.spikes=FALSE, span=0.2)
+var.out <- decomposeVar(sce, var.fit)
+```
+
+```{r}
+barcodeplot(var.out$bio, 
+            index= which(rownames(var.out) %in% immgen_cDC1_cDC2$Gene_Symbol[immgen_cDC1_cDC2$FC<1]),
+            index2= which(rownames(var.out) %in% immgen_cDC1_cDC2$Gene_Symbol[immgen_cDC1_cDC2$FC>1]),
+            main="cDC1_vs_cDC2")
+```
+
+
+
+```{r}
+barcodeplot(var.out$bio, 
+            index= which(rownames(var.out) %in% immgen_cDC1_pDC$Gene_Symbol[immgen_cDC1_pDC$FC<1]),
+            index2= which(rownames(var.out) %in% immgen_cDC1_pDC$Gene_Symbol[immgen_cDC1_pDC$FC>1]),
+            main="cDC1_vs_pDC")
+```
+
+
+```{r}
+barcodeplot(var.out$bio, 
+            index= which(rownames(var.out) %in% immgen_cDC2_pDC$Gene_Symbol[immgen_cDC2_pDC$FC<1]),
+            index2= which(rownames(var.out) %in% immgen_cDC2_pDC$Gene_Symbol[immgen_cDC2_pDC$FC>1]),
+            main="cDC2_vs_pDC")
+```
+
+
+```{r}
+library(scPipe)
+
+diff_genes = get_genes_by_GO(returns="external_gene_name",go=c("GO:0097028"))
+```
+
+
+```{r,results="hide"}
+library(readr)
+GSE60781_RPKM <- read_delim("~/Dropbox/research/sis_seq/GSE60781_RPKM.txt", "\t", escape_double = FALSE, trim_ws = TRUE)
+GSE60781_RPKM = as.data.frame(GSE60781_RPKM)
+rownames(GSE60781_RPKM) = GSE60781_RPKM[,1]
+GSE60781_RPKM = GSE60781_RPKM[,-1]
+GSE60781_RPKM = as.matrix(GSE60781_RPKM)
+GSE60781_RPKM = GSE60781_RPKM[,colSums(GSE60781_RPKM)>70000]
+GSE60781_RPKM = GSE60781_RPKM[rowSums(GSE60781_RPKM)>5,]
+
+```
+
+
+```{r,fig.width=5,fig.height=8,results="hide"}
+
+
+#sc3_paper <- sc3(sce_paper[rownames(hvg.out),], ks = 4:8, biology = TRUE)
+```
+
+```{r}
+#sc3_plot_markers(sc3_paper, k = 4,p.val=0.05,auroc=0.65)
+```
+
+
+```{r}
+#p_df = fData(sc3_paper)[,grepl("_markers_padj",colnames(fData(sc3_paper)))]
+#marker_genes = rownames(p_df)[apply(p_df,1,function(x){min(x)<0.01})]
+```
+
+
+```{r}
+#barcodeplot(cDC1_vs_pDC@.Data[[1]]$logFC, 
+#            index= which(rownames(cDC1_vs_pDC@.Data[[1]]) %in% marker_genes),
+#            main="cDC1_vs_pDC public data")
+```
+
+# JT27
+
+```{r, warning=FALSE,message=FALSE}
+JT27_all_fate_anno <- read.csv("~/Dropbox/research/sis_seq/fate_anno/JT27/JT27_all_fate_anno.csv")
+JT27_all_fate_anno$index =  as.factor(rep(1:42,each=2))
+JT27_all_fate_anno$total_cells = rowSums(JT27_all_fate_anno[,c("cDC2","cDC1","pDC")])
+JT27_all_fate_anno = JT27_all_fate_anno[JT27_all_fate_anno$total_cells>3,]
+ggtern(data=JT27_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JT27_all_fate_anno,aes(cDC1,pDC,cDC2,col=log2(total_cells+1)))+
+  geom_path(data=JT27_all_fate_anno,aes(cDC1,pDC,cDC2,col=log2(total_cells+1)),group=JT27_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JT27",x="cDC1",y="pDC",z="cDC2")
+```
+
+
+
+```{r, warning=FALSE,message=FALSE}
+JS91_all_fate_anno <- read.csv("~/Dropbox/research/sis_seq/fate_anno/JS91/JS91_all_fate_anno.csv")
+js91 = read.table("clone_split/r_data/JS91_sampleanno.txt", header=TRUE, sep="\t")
+JS91_all_fate_anno$index =  as.factor(rep(1:40,each=2))
+JS91_all_fate_anno$total_cells = rowSums(JS91_all_fate_anno[,c("cDC2","cDC1","pDC")])
+JS91_all_fate_anno = JS91_all_fate_anno[JS91_all_fate_anno$total_cells>3,]
+ggtern(data=JS91_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS91_all_fate_anno,aes(cDC1,pDC,cDC2,col=log2(total_cells+1)))+
+  geom_path(data=JS91_all_fate_anno,aes(cDC1,pDC,cDC2,col=log2(total_cells+1)),group=JS91_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS91",x="cDC1",y="pDC",z="cDC2")
+```
+
+
+```{r, warning=FALSE,message=FALSE}
+JS86_all_fate_anno <- read.csv("~/Dropbox/research/sis_seq/fate_anno/JS86/JS86_all_fate_anno.csv")
+JS86_all_fate_anno$index =  as.factor(rep(1:39,each=2))
+JS86_all_fate_anno$total_cells = rowSums(JS86_all_fate_anno[,c("cDC2","cDC1","pDC")])
+JS86_all_fate_anno = JS86_all_fate_anno[JS86_all_fate_anno$total_cells>3,]
+ggtern(data=JS86_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS86_all_fate_anno,aes(cDC1,pDC,cDC2,col=log2(total_cells+1)))+
+  geom_path(data=JS86_all_fate_anno,aes(cDC1,pDC,cDC2,col=log2(total_cells+1)),group=JS86_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS86",x="cDC1",y="pDC",z="cDC2")
+```
+
+
+```{r, warning=FALSE,message=FALSE}
+JS96_all_fate_anno <- read.csv("~/Dropbox/research/sis_seq/fate_anno/JS96/JS96_all_fate_anno.csv")
+
+the_index =  rep(1:39,each=2)
+the_index[the_index %in% c(1,2,3,13,21)] = NA
+the_index = c(the_index,c(1,1,2,2,NA,NA,3,3,13,13,21,21))
+JS96_all_fate_anno$index = the_index
+JS96_all_fate_anno$total_cells = rowSums(JS96_all_fate_anno[,c("cDC2","cDC1","pDC")])
+JS96_all_fate_anno = JS96_all_fate_anno[JS96_all_fate_anno$total_cells>3,]
+JS96_all_fate_anno = JS96_all_fate_anno[!is.na(JS96_all_fate_anno$index),]
+js96 = read.table("clone_split/r_data/JS96_sampleanno.txt", header=TRUE, sep="\t")
+ggtern(data=JS96_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS96_all_fate_anno,aes(cDC1,pDC,cDC2,col=log2(total_cells+1)))+
+  geom_path(data=JS96_all_fate_anno,aes(cDC1,pDC,cDC2,col=log2(total_cells+1)),group=JS96_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS96",x="cDC1",y="pDC",z="cDC2")
+```
+
+```{r,fig.width=6,fig.height=8}
+res = get_dist(JT27_all_fate_anno,col="pDC")#,
+                #null_mean = (mean(JT27_all_fate_anno[,c("pDC_fill")])),
+                #null_sd = (sqrt(var(as.matrix(JT27_all_fate_anno[,c("pDC_fill")])))))
+df = data.frame(dist=c(res$dist_sib,res$dist_other), type=c(rep("dist_sis",length(res$dist_sib)),rep("dist_non_sis",length(res$dist_other))))
+p1 = ggplot(data=df,aes(x=type,y=dist, fill=type))+geom_violin()+labs(title="JT27")+theme_bw()
+p2 = ggplot(data=NULL,aes(x=log2(res$tot_cnt),y=res$dist_sib))+geom_point()+labs(title="JT27")+theme_bw()
+multiplot(p1, p2, cols=1)
+```
+
+```{r,fig.width=6,fig.height=8}
+res = get_dist2(JS91_all_fate_anno,col="cDC1",
+                null_mean = (mean(JS91_all_fate_anno[,c("cDC1_fill")])),
+                null_sd = (sqrt(var(as.matrix(JS91_all_fate_anno[,c("cDC1_fill")])))))
+#res = get_dist(JS91_all_fate_anno)#,
+                #null_mean = (colMeans(JS91_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])),
+                #null_sd = (sqrt(colVars(as.matrix(JS91_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])))))
+df = data.frame(dist=c(res$dist_sib,res$dist_other), type=c(rep("dist_sis",length(res$dist_sib)),rep("dist_non_sis",length(res$dist_other))))
+p1 = ggplot(data=df,aes(x=type,y=dist, fill=type))+geom_violin()+labs(title="JS91")+theme_bw()
+p2 = ggplot(data=NULL,aes(x=log2(res$tot_cnt),y=res$dist_sib))+geom_point()+labs(title="JS91")+theme_bw()
+multiplot(p1, p2, cols=1)
+```
+
+
+```{r,fig.width=6,fig.height=8}
+res = get_dist(JS86_all_fate_anno)#,
+                #null_mean = (colMeans(JS86_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])),
+                #null_sd = (sqrt(colVars(as.matrix(JS86_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])))))
+df = data.frame(dist=c(res$dist_sib,res$dist_other), type=c(rep("dist_sis",length(res$dist_sib)),rep("dist_non_sis",length(res$dist_other))))
+p1 = ggplot(data=df,aes(x=type,y=dist, fill=type))+geom_violin()+labs(title="JS86")+theme_bw()
+p2 = ggplot(data=NULL,aes(x=log2(res$tot_cnt),y=res$dist_sib))+geom_point()+labs(title="JS86")+theme_bw()
+multiplot(p1, p2, cols=1)
+```
+
+
+```{r,fig.width=6,fig.height=8}
+res = get_dist(JS96_all_fate_anno)#,
+                #null_mean = (colMeans(JS96_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])),
+                #null_sd = (sqrt(colVars(as.matrix(JS96_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])))))
+df = data.frame(dist=c(res$dist_sib,res$dist_other), type=c(rep("dist_sis",length(res$dist_sib)),rep("dist_non_sis",length(res$dist_other))))
+p1 = ggplot(data=df,aes(x=type,y=dist, fill=type))+geom_violin()+labs(title="JS96")+theme_bw()
+p2 = ggplot(data=NULL,aes(x=log2(res$tot_cnt),y=res$dist_sib))+geom_point()+labs(title="JS96")+theme_bw()
+multiplot(p1, p2, cols=1)
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+res_cDC1 = get_dist2(JS96_all_fate_anno,
+                null_mean = mean(JS96_all_fate_anno[,c("cDC1_fill")]),
+                null_sd = sqrt(var(as.matrix(JS96_all_fate_anno[,c("cDC1_fill")]))),
+                col="cDC1"
+                )
+res_cDC2 = get_dist2(JS96_all_fate_anno,
+                null_mean = mean(JS96_all_fate_anno[,c("cDC2_fill")]),
+                null_sd = sqrt(var(as.matrix(JS96_all_fate_anno[,c("cDC2_fill")]))),
+                col="cDC2"
+                )
+res_pDC = get_dist2(JS96_all_fate_anno,
+                null_mean = mean(JS96_all_fate_anno[,c("pDC_fill")]),
+                null_sd = sqrt(var(as.matrix(JS96_all_fate_anno[,c("pDC_fill")]))),
+                col="pDC"
+                )
+plot_ly(x=res_cDC1$dist_sib,
+        y=res_cDC2$dist_sib,
+        z=res_pDC$dist_sib,
+        color=log2(res_pDC$tot_cnt),
+        text=paste0("total_cells: ",res_pDC$tot_cnt,"\ntotal_cells2: ",res_pDC$tot_cnt2,"\nindex:",res_pDC$primer_idx))%>%layout(title="JS96")
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+res_cDC1 = get_dist2(JT27_all_fate_anno,
+                null_mean = mean(JT27_all_fate_anno[,c("cDC1_fill")]),
+                null_sd = sqrt(var(as.matrix(JT27_all_fate_anno[,c("cDC1_fill")]))),
+                col="cDC1"
+                )
+res_cDC2 = get_dist2(JT27_all_fate_anno,
+                null_mean = mean(JT27_all_fate_anno[,c("cDC2_fill")]),
+                null_sd = sqrt(var(as.matrix(JT27_all_fate_anno[,c("cDC2_fill")]))),
+                col="cDC2"
+                )
+res_pDC = get_dist2(JT27_all_fate_anno,
+                null_mean = mean(JT27_all_fate_anno[,c("pDC_fill")]),
+                null_sd = sqrt(var(as.matrix(JT27_all_fate_anno[,c("pDC_fill")]))),
+                col="pDC"
+                )
+plot_ly(x=res_cDC1$dist_sib,
+        y=res_cDC2$dist_sib,
+        z=res_pDC$dist_sib,
+        color=log2(res_pDC$tot_cnt),
+        text=paste0("total_cells: ",res_pDC$tot_cnt,"\ntotal_cells2: ",res_pDC$tot_cnt2,"\nindex:",res_pDC$primer_idx))%>%layout(title="JT27")
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+res_cDC1 = get_dist2(JS86_all_fate_anno,
+                null_mean = mean(JS86_all_fate_anno[,c("cDC1_fill")]),
+                null_sd = sqrt(var(as.matrix(JS86_all_fate_anno[,c("cDC1_fill")]))),
+                col="cDC1"
+                )
+res_cDC2 = get_dist2(JS86_all_fate_anno,
+                null_mean = mean(JS86_all_fate_anno[,c("cDC2_fill")]),
+                null_sd = sqrt(var(as.matrix(JS86_all_fate_anno[,c("cDC2_fill")]))),
+                col="cDC2"
+                )
+res_pDC = get_dist2(JS86_all_fate_anno,
+                null_mean = mean(JS86_all_fate_anno[,c("pDC_fill")]),
+                null_sd = sqrt(var(as.matrix(JS86_all_fate_anno[,c("pDC_fill")]))),
+                col="pDC"
+                )
+
+plot_ly(x=res_cDC1$dist_sib,
+        y=res_cDC2$dist_sib,
+        z=res_pDC$dist_sib,
+        color=log2(res_pDC$tot_cnt),
+        text=paste0("total_cells: ",res_pDC$tot_cnt,"\ntotal_cells2: ",res_pDC$tot_cnt2,"\nindex:",res_pDC$primer_idx))%>%layout(title="JS86")
+```
+
+
+
+```{r, message=FALSE, warning=FALSE}
+res_cDC1 = get_dist2(JS91_all_fate_anno,
+                null_mean = mean(JS91_all_fate_anno[,c("cDC1_fill")]),
+                null_sd = sqrt(var(as.matrix(JS91_all_fate_anno[,c("cDC1_fill")]))),
+                col="cDC1"
+                )
+res_cDC2 = get_dist2(JS91_all_fate_anno,
+                null_mean = mean(JS91_all_fate_anno[,c("cDC2_fill")]),
+                null_sd = sqrt(var(as.matrix(JS91_all_fate_anno[,c("cDC2_fill")]))),
+                col="cDC2"
+                )
+res_pDC = get_dist2(JS91_all_fate_anno,
+                null_mean = mean(JS91_all_fate_anno[,c("pDC_fill")]),
+                null_sd = sqrt(var(as.matrix(JS91_all_fate_anno[,c("pDC_fill")]))),
+                col="pDC"
+                )
+
+plot_ly(x=res_cDC1$dist_sib,
+        y=res_cDC2$dist_sib,
+        z=res_pDC$dist_sib,
+        color=log2(res_pDC$tot_cnt),
+        text=paste0("total_cells: ",res_pDC$tot_cnt,"\ntotal_cells2: ",res_pDC$tot_cnt2,"\nindex:",res_pDC$primer_idx))%>%layout(title="JS91")
+```
+
+
+```{r, warning=FALSE,message=FALSE}
+res_cDC1 = get_dist(JS91_all_fate_anno,col = "cDC1_fill")
+res_cDC2 = get_dist(JS91_all_fate_anno,col = "cDC2_fill")
+res_pDC = get_dist(JS91_all_fate_anno,col = "pDC_fill")
+plot_ly(x=res_cDC1$dist_sib,
+        y=res_cDC2$dist_sib,
+        z=res_pDC$dist_sib,
+        color=log2(res_pDC$tot_cnt),
+        text=paste0("total_cells: ",res_pDC$tot_cnt,"\ntotal_cells2: ",res_pDC$tot_cnt2,"\nindex:",res_pDC$primer_idx))%>%layout(title="JS91 filler cells")
+```
+
+
+```{r}
+res_cDC1 = get_dist(JT27_all_fate_anno,col = "cDC1_fill")
+res_cDC2 = get_dist(JT27_all_fate_anno,col = "cDC2_fill")
+res_pDC = get_dist(JT27_all_fate_anno,col = "pDC_fill")
+plot_ly(x=res_cDC1$dist_sib,
+        y=res_cDC2$dist_sib,
+        z=res_pDC$dist_sib,
+        color=log2(res_pDC$tot_cnt),
+        text=paste0("total_cells: ",res_pDC$tot_cnt,"\ntotal_cells2: ",res_pDC$tot_cnt2,"\nindex:",res_pDC$primer_idx))%>%layout(title="JT27 filler cells")
+```
+
+```{r}
+marker_genes = c("Tcf4", "Siglech", "Spib", "Irf4", "Irf8", "Batf3", "Zbtb46", "Gfi1", "Klf4", "Notch2", "Relb", "Runx2", "Id2","Runx1","Zeb2","Jade1","Brd3")
+all_cpm = log10(edgeR::cpm(all_cnt)+1)
+marker_cpm = all_cpm[rownames(all_cpm) %in% marker_genes,]
+marker_cpm = t(marker_cpm)
+```
+
+```{r}
+JT27_all_fate_anno$cell_name = paste0("ILSGR0260r_S1_BC",JT27_all_fate_anno$index,".bam")
+tmp_marker = as.data.frame(marker_cpm[rownames(marker_cpm) %in% JT27_all_fate_anno$cell_name, ])
+tmp_marker$cell_id = rownames(tmp_marker)
+JT27_all_fate_anno = merge(JT27_all_fate_anno, tmp_marker,by.x="cell_name",by.y="cell_id")
+```
+
+
+
+
+```{r, warning=FALSE, message=FALSE}
+ggtern(data=JT27_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JT27_all_fate_anno,aes(cDC1,pDC,cDC2,col=Id2))+
+  geom_path(data=JT27_all_fate_anno,aes(cDC1,pDC,cDC2,col=Id2),group=JT27_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JT27",x="cDC1",y="pDC",z="cDC2")
+```
+
+
+
+```{r}
+JS86_all_fate_anno$cell_name = paste("D9JS27_BC", JS86_all_fate_anno$index, "_R2.bam", sep="")
+tmp_marker = as.data.frame(marker_cpm[rownames(marker_cpm) %in% JS86_all_fate_anno$cell_name, ])
+tmp_marker$cell_id = rownames(tmp_marker)
+JS86_all_fate_anno = merge(JS86_all_fate_anno, tmp_marker,by.x="cell_name",by.y="cell_id")
+```
+
+
+```{r,message=FALSE,warning=FALSE}
+ggtern(data=JS86_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS86_all_fate_anno,aes(cDC1,pDC,cDC2,col=Id2))+
+  geom_path(data=JS86_all_fate_anno,aes(cDC1,pDC,cDC2,col=Id2),group=JS86_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS86",x="cDC1",y="pDC",z="cDC2")
+```
+
+
+```{r}
+js91$cell_name=paste("JS91_", substr(js91[,2],1,6), "_trimmed.bam", sep="")
+JS91_all_fate_anno = merge(JS91_all_fate_anno,js91,by.x="index",by.y="Index.primer")
+tmp_marker = as.data.frame(marker_cpm[rownames(marker_cpm) %in% JS91_all_fate_anno$cell_name, ])
+tmp_marker$cell_id = rownames(tmp_marker)
+JS91_all_fate_anno = merge(JS91_all_fate_anno, tmp_marker,by.x="cell_name",by.y="cell_id")
+```
+
+
+```{r,message=FALSE,warning=FALSE}
+ggtern(data=JS91_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS91_all_fate_anno,aes(cDC1,pDC,cDC2,col=Spib))+
+  geom_path(data=JS91_all_fate_anno,aes(cDC1,pDC,cDC2,col=Spib),group=JS91_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS91",x="cDC1",y="pDC",z="cDC2")
+```
+
+```{r}
+js96$cell_name=paste("JS96_", substr(js96[,2],1,6), "_trimmed.bam", sep="")
+JS96_all_fate_anno = merge(JS96_all_fate_anno,js96,by.x="index",by.y="Index.primer")
+tmp_marker = as.data.frame(marker_cpm[rownames(marker_cpm) %in% JS96_all_fate_anno$cell_name, ])
+tmp_marker$cell_id = rownames(tmp_marker)
+JS96_all_fate_anno = merge(JS96_all_fate_anno, tmp_marker,by.x="cell_name",by.y="cell_id")
+```
+
+```{r,message=FALSE,warning=FALSE}
+ggtern(data=JS96_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS96_all_fate_anno,aes(cDC1,pDC,cDC2,col=Id2))+
+  geom_path(data=JS96_all_fate_anno,aes(cDC1,pDC,cDC2,col=Id2),group=JS96_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS96",x="cDC1",y="pDC",z="cDC2")
+```
+
+
+```{r,warning=FALSE,message=FALSE}
+pdf("marker_genes_fate_4batch.pdf",width = 20,height = 10)
+for(gene in marker_genes){
+  p1 = ggtern(data=JT27_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JT27_all_fate_anno,aes(cDC1,pDC,cDC2,col=JT27_all_fate_anno[,gene]))+
+  geom_path(data=JT27_all_fate_anno,aes(cDC1,pDC,cDC2,col=JT27_all_fate_anno[,gene]),group=JT27_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JT27",x="cDC1",y="pDC",z="cDC2",colour=gene)
+    
+  p2 = ggtern(data=JS86_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS86_all_fate_anno,aes(cDC1,pDC,cDC2,col=JS86_all_fate_anno[,gene]))+
+  geom_path(data=JS86_all_fate_anno,aes(cDC1,pDC,cDC2,col=JS86_all_fate_anno[,gene]),group=JS86_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS86",x="cDC1",y="pDC",z="cDC2",colour=gene)
+      
+  p3 = ggtern(data=JS91_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS91_all_fate_anno,aes(cDC1,pDC,cDC2,col=JS91_all_fate_anno[,gene]))+
+  geom_path(data=JS91_all_fate_anno,aes(cDC1,pDC,cDC2,col=JS91_all_fate_anno[,gene]),group=JS91_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS91",x="cDC1",y="pDC",z="cDC2",colour=gene)
+        
+  p4 = ggtern(data=JS96_all_fate_anno,aes(cDC1_fill,pDC_fill,cDC2_fill)) + theme_bw()+
+  stat_density_tern(geom='polygon',aes(fill=..level..,alpha = ..level..))+
+  guides(alpha=FALSE)+
+  scale_fill_gradient(low = "gray80", high = "gray20")+
+  geom_point(data=JS96_all_fate_anno,aes(cDC1,pDC,cDC2,col=JS96_all_fate_anno[,gene]))+
+  geom_path(data=JS96_all_fate_anno,aes(cDC1,pDC,cDC2,col=JS96_all_fate_anno[,gene]),group=JS96_all_fate_anno$index)+
+  limit_tern(1.05,1.05,1.05)+
+  labs(title="JS96",x="cDC1",y="pDC",z="cDC2",colour=gene)
+  print(multiplot(p1, p2, p3, p4, cols=2))
+}
+```
+
+
+
+
+
+
+```{r}
+bias_JT27 = get_bias(JT27_all_fate_anno,
+                null_mean = (colMeans(JT27_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])),
+                null_sd = (sqrt(colVars(as.matrix(JT27_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])))))
+JT27_all_fate_anno = merge(JT27_all_fate_anno,bias_JT27, by.x="index", by.y="primer_idx")
+
+bias_JS86 = get_bias(JS86_all_fate_anno,
+                null_mean = (colMeans(JS86_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])),
+                null_sd = (sqrt(colVars(as.matrix(JS86_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])))))
+JS86_all_fate_anno = merge(JS86_all_fate_anno,bias_JS86, by.x="index", by.y="primer_idx")
+
+bias_JS91 = get_bias(JS91_all_fate_anno,
+                null_mean = (colMeans(JS91_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])),
+                null_sd = (sqrt(colVars(as.matrix(JS91_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])))))
+JS91_all_fate_anno = merge(JS91_all_fate_anno,bias_JS91, by.x="index", by.y="primer_idx")
+
+bias_JS96 = get_bias(JS96_all_fate_anno,
+                null_mean = (colMeans(JS96_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])),
+                null_sd = (sqrt(colVars(as.matrix(JS96_all_fate_anno[,c("cDC1_fill","cDC2_fill","pDC_fill")])))))
+JS96_all_fate_anno = merge(JS96_all_fate_anno,bias_JS96, by.x="index", by.y="primer_idx")
+```
+
+
+```{r}
+plot_ly(x=c(bias_JT27$bias_cDC1,bias_JS86$bias_cDC1,bias_JS91$bias_cDC1,bias_JS96$bias_cDC1),
+        y=c(bias_JT27$bias_cDC2,bias_JS86$bias_cDC2,bias_JS91$bias_cDC2,bias_JS96$bias_cDC2),
+        z=c(bias_JT27$bias_pDC,bias_JS86$bias_pDC,bias_JS91$bias_pDC,bias_JS96$bias_pDC),
+        color=c(rep("JT27",length(bias_JT27$bias_cDC1)), 
+                rep("JS86",length(bias_JS86$bias_cDC1)),
+                rep("JS91",length(bias_JS91$bias_cDC1)),
+                rep("JS96",length(bias_JS96$bias_cDC1))))
+```
+
+
+```{r}
+fate_anno_all = rbind(JS96_all_fate_anno[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JS91_all_fate_anno[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JS86_all_fate_anno[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JT27_all_fate_anno[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")])
+fate_anno_all = fate_anno_all[!duplicated(fate_anno_all$cell_name),]
+```
+
+
+```{r}
+fc2 = fc
+fc2 = fc2[,colnames(fc2) %in% fate_anno_all$cell_name]
+fc2 = fc2[,order(colnames(fc2))]
+allcounts = DGEList(counts=fc2)
+fate_anno_all = fate_anno_all[order(fate_anno_all$cell_name),]
+
+fate_anno_all$batch = rep("ILSGR0260r",nrow(fate_anno_all))
+fate_anno_all$batch[grepl("^D9JS27",fate_anno_all$cell_name)] = "JS86"
+fate_anno_all$batch[grepl("^JS91",fate_anno_all$cell_name)] = "JS91"
+fate_anno_all$batch[grepl("^JS96",fate_anno_all$cell_name)] = "JS96"
+
+design_bias = model.matrix(~ fate_anno_all$bias_cDC1+fate_anno_all$batch)
+colnames(design_bias) = make.names(colnames(design_bias))
+
+all_cnt = estimateDisp(allcounts, robust=TRUE)
+
+fit = glmFit(all_cnt, design_bias)
+
+# Run likelihood ratio tests
+lrt = glmLRT(fit,coef = 2)
+top = topTags(lrt,n=Inf)
+
+```
+
+```{r}
+barcodeplot(top@.Data[[1]]$logFC, 
+            index= which(rownames(var.out) %in% immgen_cDC1_cDC2$Gene_Symbol[immgen_cDC1_cDC2$FC>1]),
+            main="cDC1_vs_cDC2")
+```
+
+
+```{r}
+barcodeplot(top@.Data[[1]]$logFC, 
+            index= which(rownames(cDC1_vs_pDC@.Data[[1]]) %in% immgen_cDC1_pDC$Gene_Symbol[immgen_cDC1_pDC$FC>1]),
+            main="cDC1_vs_pDC")
+```
+
+
+```{r}
+cDC1_genes = c(immgen_cDC1_cDC2$Gene_Symbol[immgen_cDC1_cDC2$FC>1],
+               immgen_cDC1_pDC$Gene_Symbol[immgen_cDC1_pDC$FC>1])
+cDC1_genes = unique(cDC1_genes)
+
+cDC2_genes = c(immgen_cDC1_cDC2$Gene_Symbol[immgen_cDC1_cDC2$FC<1 & immgen_cDC1_cDC2$adj.P.Val<10^-7],
+               immgen_cDC2_pDC$Gene_Symbol[immgen_cDC2_pDC$FC>1 & immgen_cDC2_pDC$adj.P.Val<10^-7])
+cDC2_genes = unique(cDC2_genes)
+
+pDC_genes = c(immgen_cDC2_pDC$Gene_Symbol[immgen_cDC2_pDC$FC<1 & immgen_cDC2_pDC$adj.P.Val<10^-7],
+               immgen_cDC1_pDC$Gene_Symbol[immgen_cDC1_pDC$FC<1 & immgen_cDC1_pDC$adj.P.Val<10^-7])
+pDC_genes = unique(pDC_genes)
+
+index = list(cDC1_genes=cDC1_genes, 
+             cDC2_genes=cDC2_genes,
+             pDC_genes=pDC_genes)
+```
+
+
+```{r}
+get_marker_Imm_genes = function(allcounts, fate_anno_all=fate_anno_all, batch = "all", cut_off=0.05){
+  sel_batch = batch
+  if (sel_batch == "all"){
+    all_cnt = estimateDisp(allcounts, robust=TRUE)
+  }else{
+    all_cnt = estimateDisp(allcounts[,fate_anno_all$batch == sel_batch], robust=TRUE)
+  }
+  
+  if(sel_batch == "all"){
+    fate_bias = fate_anno_all$bias_cDC1
+    design_bias = model.matrix(~ fate_bias+fate_anno_all$batch)
+  }else{
+    fate_bias = fate_anno_all$bias_cDC1[fate_anno_all$batch == sel_batch]
+    design_bias = model.matrix(~ fate_bias)
+  }
+  colnames(design_bias) = make.names(colnames(design_bias))
+  fit = glmFit(all_cnt, design_bias)
+  # Run likelihood ratio tests
+  lrt = glmLRT(fit,coef = 2)
+  top = topTags(lrt,n=Inf)
+  tmp = top@.Data[[1]][marker_genes,]
+  tmp = tmp[,c("logFC","FDR")]
+  tmp$FDR = -log10(tmp$FDR)
+  tmp[tmp$logFC <0, "FDR"]=-tmp[tmp$logFC <0, "FDR"]
+  colnames(tmp) = c("cDC1_logFC","cDC1_FDR")
+  batch_markers = tmp
+  tmp2 = mroast(all_cnt, 
+         index=index,
+         design=design_bias,
+         contrast=2)
+  tmp2 = tmp2[,c("Direction", "FDR")]
+  tmp2$FDR = -log10(tmp2$FDR)
+  tmp2[tmp2$Direction == "Down", "FDR"]=-tmp2[tmp2$Direction == "Down", "FDR"]
+  colnames(tmp2) = c("cDC1_Direction", "cDC1_FDR")
+  batch_Imm = tmp2
+  
+  tmp3 = top@.Data[[1]]
+  tmp3 = tmp3[,c("logFC","FDR")]
+  colnames(tmp3) = c("cDC1_logFC","cDC1_FDR")
+  tmp3$gene_names = rownames(tmp3)
+  batch_DEs = tmp3
+  
+  if(sel_batch == "all"){
+    fate_bias = fate_anno_all$bias_cDC2
+    design_bias = model.matrix(~ fate_bias+fate_anno_all$batch)
+  }else{
+    fate_bias = fate_anno_all$bias_cDC2[fate_anno_all$batch == sel_batch]
+    design_bias = model.matrix(~ fate_bias)
+  }
+  design_bias = model.matrix(~ fate_bias)
+  colnames(design_bias) = make.names(colnames(design_bias))
+  fit = glmFit(all_cnt, design_bias)
+  # Run likelihood ratio tests
+  lrt = glmLRT(fit,coef = 2)
+  top = topTags(lrt,n=Inf)
+  tmp = top@.Data[[1]][marker_genes,]
+  tmp = tmp[,c("logFC","FDR")]
+  tmp$FDR = -log10(tmp$FDR)
+  tmp[tmp$logFC <0, "FDR"]=-tmp[tmp$logFC <0, "FDR"]
+  colnames(tmp) = c("cDC2_logFC","cDC2_FDR")
+  batch_markers = cbind(batch_markers, tmp)
+  tmp2 = mroast(all_cnt, 
+         index=index,
+         design=design_bias,
+         contrast=2)
+  tmp2 = tmp2[,c("Direction", "FDR")]
+  tmp2$FDR = -log10(tmp2$FDR)
+  tmp2[tmp2$Direction == "Down", "FDR"]=-tmp2[tmp2$Direction == "Down", "FDR"]
+  colnames(tmp2) = c("cDC2_Direction", "cDC2_FDR")
+  batch_Imm = cbind(batch_Imm, tmp2)
+  
+  tmp3 = top@.Data[[1]]
+  tmp3 = tmp3[,c("logFC","FDR")]
+  colnames(tmp3) = c("cDC2_logFC","cDC2_FDR")
+  tmp3$gene_names = rownames(tmp3)
+  batch_DEs = merge(batch_DEs, tmp3,by.x="gene_names",by.y="gene_names")  
+  
+  if(sel_batch == "all"){
+    fate_bias = fate_anno_all$bias_pDC
+    design_bias = model.matrix(~ fate_bias+fate_anno_all$batch)
+  }else{
+    fate_bias = fate_anno_all$bias_pDC[fate_anno_all$batch == sel_batch]
+    design_bias = model.matrix(~ fate_bias)
+  }
+  design_bias = model.matrix(~ fate_bias)
+  colnames(design_bias) = make.names(colnames(design_bias))
+  fit = glmFit(all_cnt, design_bias)
+  # Run likelihood ratio tests
+  lrt = glmLRT(fit,coef = 2)
+  top = topTags(lrt,n=Inf)
+  tmp = top@.Data[[1]][marker_genes,]
+  tmp = tmp[,c("logFC","FDR")]
+  tmp$FDR = -log10(tmp$FDR)
+  tmp[tmp$logFC <0, "FDR"]=-tmp[tmp$logFC <0, "FDR"]
+  colnames(tmp) = c("pDC_logFC","pDC_FDR")
+  batch_markers = cbind(batch_markers, tmp)
+  tmp2 = mroast(all_cnt, 
+         index=index,
+         design=design_bias,
+         contrast=2)
+  tmp2 = tmp2[,c("Direction", "FDR")]
+  tmp2$FDR = -log10(tmp2$FDR)
+  tmp2[tmp2$Direction == "Down", "FDR"]=-tmp2[tmp2$Direction == "Down", "FDR"]
+  colnames(tmp2) = c("pDC_Direction", "pDC_FDR")
+  batch_Imm = cbind(batch_Imm, tmp2)
+  
+  tmp3 = top@.Data[[1]]
+  tmp3 = tmp3[,c("logFC","FDR")]
+  colnames(tmp3) = c("pDC_logFC","pDC_FDR")
+  tmp3$gene_names = rownames(tmp3)
+  batch_DEs = merge(batch_DEs, tmp3,by.x="gene_names",by.y="gene_names")  
+  
+  batch_DEs = batch_DEs[rowMins(as.matrix(batch_DEs[,grepl("FDR",colnames(batch_DEs))]))<cut_off,]
+  batch_markers$method = sel_batch
+  batch_markers$gene_name = rownames(batch_markers)
+  batch_Imm$method = sel_batch
+  batch_Imm$gene_name = rownames(batch_Imm)
+  
+  return(list(batch_Imm=batch_Imm,batch_markers=batch_markers,batch_DEs=batch_DEs))
+}
+```
+
+
+
+```{r}
+JT27_list = get_marker_Imm_genes(allcounts, fate_anno_all=fate_anno_all, batch = "ILSGR0260r")
+JS86_list = get_marker_Imm_genes(allcounts, fate_anno_all=fate_anno_all, batch = "JS86")
+JS91_list = get_marker_Imm_genes(allcounts, fate_anno_all=fate_anno_all, batch = "JS91")
+JS96_list = get_marker_Imm_genes(allcounts, fate_anno_all=fate_anno_all, batch = "JS96")
+all_list = get_marker_Imm_genes(allcounts, fate_anno_all=fate_anno_all, batch = "all")
+
+```
+
+
+```{r}
+marker_combined = rbind(JT27_list$batch_markers,
+                        JS86_list$batch_markers,
+                        JS91_list$batch_markers,
+                        JS96_list$batch_markers,
+                        all_list$batch_markers)
+
+
+Imm_combined = rbind(JT27_list$batch_Imm,
+                     JS86_list$batch_Imm,
+                     JS91_list$batch_Imm,
+                     JS96_list$batch_Imm,
+                     all_list$batch_Imm)
+```
+
+
+
+```{r}
+pdf("p.val_cDC1_marker_genes.pdf",width = 8,height = 4)
+ggplot(data=marker_combined,aes(x=gene_name, y=cDC1_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(title="-log10(pvalue) in cDC1 fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+  
+dev.off()
+```
+
+```{r}
+pdf("p.val_cDC2_marker_genes.pdf",width = 8,height = 4)
+ggplot(data=marker_combined,aes(x=gene_name, y=cDC2_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(title="-log10(pvalue) in cDC2 fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+  
+dev.off()
+```
+
+
+```{r}
+pdf("p.val_pDC_marker_genes.pdf",width = 8,height = 4)
+ggplot(data=marker_combined,aes(x=gene_name, y=pDC_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(title="-log10(pvalue) in pDC fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+  
+dev.off()
+```
+
+
+
+```{r}
+pdf("Immgen_p.value_cDC1.pdf")
+ggplot(data=Imm_combined,aes(x=gene_name, y=cDC1_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(y="-log10(p_value)",title="-log10(p_value) of gene set enrichment in cDC1 fate biased genes")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+dev.off()
+```
+
+```{r}
+pdf("Immgen_p.value_cDC2.pdf")
+ggplot(data=Imm_combined,aes(x=gene_name, y=cDC2_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(y="-log10(p_value)",title="-log10(p_value) of gene set enrichment in cDC2 fate biased genes")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+dev.off()
+```
+
+```{r}
+pdf("Immgen_p.value_pDC.pdf")
+ggplot(data=Imm_combined,aes(x=gene_name, y=pDC_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(y="-log10(p_value)",title="-log10(p_value) of gene set enrichment in pDC fate biased genes")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+dev.off()
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+library(VennDiagram)
+cDC1_genes = all_list$batch_DEs$gene_names[all_list$batch_DEs$cDC1_FDR<0.05]
+area1 = length(cDC1_genes)
+area2 = length(index$cDC1_genes)
+cross.area = length(intersect(cDC1_genes, index$cDC1_genes))
+grid.newpage()
+draw.pairwise.venn(area1, area2, cross.area, category = c("Sis-seq(cDC1)", "Immgen(cDC1)"), lty = rep("blank", 
+    2), fill = c("light blue", "pink"), alpha = rep(0.5, 2), cat.pos = c(0, 
+    0), cat.dist = rep(0.025, 2))
+```
+
+```{r}
+cDC2_genes = all_list$batch_DEs$gene_names[all_list$batch_DEs$cDC2_FDR<0.01]
+area1 = length(cDC2_genes)
+area2 = length(index$cDC2_genes)
+cross.area = length(intersect(cDC2_genes, index$cDC2_genes))
+grid.newpage()
+draw.pairwise.venn(area1, area2, cross.area, category = c("Sis-seq(cDC2)", "Immgen(cDC2)"), lty = rep("blank", 
+    2), fill = c("light blue", "pink"), alpha = rep(0.5, 2), cat.pos = c(0, 
+    0), cat.dist = rep(0.025, 2))
+```
+
+
+```{r}
+pDC_genes = all_list$batch_DEs$gene_names[all_list$batch_DEs$pDC_FDR<0.005]
+area1 = length(pDC_genes)
+area2 = length(index$pDC_genes)
+cross.area = length(intersect(pDC_genes, index$pDC_genes))
+grid.newpage()
+draw.pairwise.venn(area1, area2, cross.area, category = c("Sis-seq(pDC)", "Immgen(pDC)"), lty = rep("blank", 
+    2), fill = c("light blue", "pink"), alpha = rep(0.5, 2), cat.pos = c(0, 
+    0), cat.dist = rep(0.025, 2))
+```
+
+```{r}
+immgen_CDP_GMP <- read_csv("~/Dropbox/research/sis_seq/immgen/CDP_GMP.csv")
+immgen_CDP_CMP <- read_csv("~/Dropbox/research/sis_seq/immgen/CDP_CMP.csv")
+immgen_CDP_CLP <- read_csv("~/Dropbox/research/sis_seq/immgen/CDP_CLP.csv")
+immgen_CDP_MDP <- read_csv("~/Dropbox/research/sis_seq/immgen/CDP_MDP.csv")
+
+CDP_genes1 = union(immgen_CDP_CMP$Gene_Symbol[immgen_CDP_CMP$FC>3 | immgen_CDP_CMP$adj.P.Val<0.0001], immgen_CDP_CLP$Gene_Symbol[immgen_CDP_CLP$FC>3 | immgen_CDP_CLP$adj.P.Val<0.0001])
+CDP_genes2 = union(immgen_CDP_GMP$Gene_Symbol[immgen_CDP_GMP$FC>3 | immgen_CDP_GMP$adj.P.Val<0.0001], immgen_CDP_MDP$Gene_Symbol[immgen_CDP_MDP$FC>3 | immgen_CDP_MDP$adj.P.Val<0.0001])
+CDP_genes = union(CDP_genes1, CDP_genes2)
+CDP_genes = unique(CDP_genes)
+length(CDP_genes)
+write.table(CDP_genes,file="CDP_genes_Ig.csv",row.names = F, quote = F,col.names = F)
+```
+
+
+```{r}
+pdf("venn_diagram_pDC.pdf")
+pDC_genes = all_list$batch_DEs$gene_names[all_list$batch_DEs$pDC_FDR<0.005]
+area1 = length(pDC_genes)
+area2 = length(CDP_genes)
+area3 = length(index$pDC_genes)
+n12 = length(intersect(pDC_genes, CDP_genes))
+n23 = length(intersect(CDP_genes, index$pDC_genes))
+n13 = length(intersect(pDC_genes, index$pDC_genes))
+n123 = length(intersect(index$pDC_genes, intersect(pDC_genes, CDP_genes)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(pDC)", "CDP_Immgen", "pDC_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+intersect(index$pDC_genes, intersect(pDC_genes, CDP_genes))
+```
+
+```{r}
+pdf("venn_diagram_cDC1.pdf")
+cDC1_genes = all_list$batch_DEs$gene_names[all_list$batch_DEs$cDC1_FDR<0.05]
+area1 = length(cDC1_genes)
+area2 = length(CDP_genes)
+area3 = length(index$cDC1_genes)
+n12 = length(intersect(cDC1_genes, CDP_genes))
+n23 = length(intersect(CDP_genes, index$cDC1_genes))
+n13 = length(intersect(cDC1_genes, index$cDC1_genes))
+n123 = length(intersect(index$cDC1_genes, intersect(cDC1_genes, CDP_genes)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(cDC1)", "CDP_Immgen", "cDC1_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+intersect(index$cDC1_genes, intersect(cDC1_genes, CDP_genes))
+```
+
+
+```{r}
+pdf("venn_diagram_cDC2.pdf")
+cDC2_genes = all_list$batch_DEs$gene_names[all_list$batch_DEs$cDC2_FDR<0.01]
+area1 = length(cDC2_genes)
+area2 = length(CDP_genes)
+area3 = length(index$cDC2_genes)
+n12 = length(intersect(cDC2_genes, CDP_genes))
+n23 = length(intersect(CDP_genes, index$cDC2_genes))
+n13 = length(intersect(cDC2_genes, index$cDC2_genes))
+n123 = length(intersect(index$cDC2_genes, intersect(cDC2_genes, CDP_genes)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(cDC2)", "CDP_Immgen", "cDC2_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+intersect(index$cDC2_genes, intersect(cDC2_genes, CDP_genes))
+```
+
+
+```{r}
+rm_outlier = function(fate_anno, col){
+  res = get_dist(fate_anno,col=col)
+  x = data.frame(sib=res$dist_sib, cnt=log2(res$tot_cnt+res$tot_cnt2))
+  rownames(x) = res$primer_idx
+  dist = mahalanobis(x, center=colMeans(x), cov=cov(x))
+  return(fate_anno[fate_anno$index %in% rownames(x)[dist<qchisq(0.95, ncol(x))],])
+}
+
+```
+
+```{r}
+JS96_tmp = rm_outlier(JS96_all_fate_anno, col="cDC1")
+JS91_tmp = rm_outlier(JS91_all_fate_anno, col="cDC1")
+JS86_tmp = rm_outlier(JS86_all_fate_anno, col="cDC1")
+JT27_tmp = rm_outlier(JT27_all_fate_anno, col="cDC1")
+
+fate_anno_all = rbind(JS96_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JS91_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JS86_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JT27_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")])
+fate_anno_all = fate_anno_all[!duplicated(fate_anno_all$cell_name),]
+fate_anno_all = fate_anno_all[order(fate_anno_all$cell_name),]
+
+fate_anno_all$batch = rep("JT27",nrow(fate_anno_all))
+fate_anno_all$batch[grepl("^D9JS27",fate_anno_all$cell_name)] = "JS86"
+fate_anno_all$batch[grepl("^JS91",fate_anno_all$cell_name)] = "JS91"
+fate_anno_all$batch[grepl("^JS96",fate_anno_all$cell_name)] = "JS96"
+
+fate_anno_cDC1 = fate_anno_all
+
+```
+
+```{r}
+allcounts1 = allcounts
+allcounts1 = allcounts1[,colnames(allcounts1) %in% fate_anno_all$cell_name]
+allcounts1 = allcounts1[,order(colnames(allcounts1))]
+
+JT27_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JT27")
+JS86_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS86")
+JS91_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS91")
+JS96_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS96")
+all_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "all")
+```
+
+```{r}
+marker_combined1 = rbind(JT27_list1$batch_markers,
+                        JS86_list1$batch_markers,
+                        JS91_list1$batch_markers,
+                        JS96_list1$batch_markers,
+                        all_list1$batch_markers)
+
+marker_combined_cDC1 = marker_combined1
+
+Imm_combined1 = rbind(JT27_list1$batch_Imm,
+                     JS86_list1$batch_Imm,
+                     JS91_list1$batch_Imm,
+                     JS96_list1$batch_Imm,
+                     all_list1$batch_Imm)
+```
+
+
+```{r}
+pdf("p.val_cDC1_marker_genes_clean.pdf",width = 8,height = 4)
+ggplot(data=marker_combined1,aes(x=gene_name, y=cDC1_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(title="-log10(pvalue) in cDC1 fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+  
+dev.off()
+
+pdf("Immgen_p.value_cDC1_clean.pdf")
+ggplot(data=Imm_combined1,aes(x=gene_name, y=cDC1_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(y="-log10(p_value)",title="-log10(p_value) of gene set enrichment in cDC1 fate biased genes")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+dev.off()
+```
+
+```{r}
+JS96_tmp = rm_outlier(JS96_all_fate_anno, col="cDC2")
+JS91_tmp = rm_outlier(JS91_all_fate_anno, col="cDC2")
+JS86_tmp = rm_outlier(JS86_all_fate_anno, col="cDC2")
+JT27_tmp = rm_outlier(JT27_all_fate_anno, col="cDC2")
+
+fate_anno_all = rbind(JS96_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JS91_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JS86_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JT27_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")])
+fate_anno_all = fate_anno_all[!duplicated(fate_anno_all$cell_name),]
+fate_anno_all = fate_anno_all[order(fate_anno_all$cell_name),]
+
+fate_anno_all$batch = rep("JT27",nrow(fate_anno_all))
+fate_anno_all$batch[grepl("^D9JS27",fate_anno_all$cell_name)] = "JS86"
+fate_anno_all$batch[grepl("^JS91",fate_anno_all$cell_name)] = "JS91"
+fate_anno_all$batch[grepl("^JS96",fate_anno_all$cell_name)] = "JS96"
+
+fate_anno_cDC2 = fate_anno_all
+
+allcounts1 = allcounts
+allcounts1 = allcounts1[,colnames(allcounts1) %in% fate_anno_all$cell_name]
+allcounts1 = allcounts1[,order(colnames(allcounts1))]
+
+JT27_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JT27")
+JS86_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS86")
+JS91_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS91")
+JS96_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS96")
+all_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "all")
+
+marker_combined1 = rbind(JT27_list1$batch_markers,
+                        JS86_list1$batch_markers,
+                        JS91_list1$batch_markers,
+                        JS96_list1$batch_markers,
+                        all_list1$batch_markers)
+
+marker_combined_cDC2 = marker_combined1
+
+Imm_combined1 = rbind(JT27_list1$batch_Imm,
+                     JS86_list1$batch_Imm,
+                     JS91_list1$batch_Imm,
+                     JS96_list1$batch_Imm,
+                     all_list1$batch_Imm)
+```
+
+
+```{r}
+pdf("p.val_cDC2_marker_genes_clean.pdf",width = 8,height = 4)
+ggplot(data=marker_combined1,aes(x=gene_name, y=cDC2_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(title="-log10(pvalue) in cDC2 fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+  
+dev.off()
+
+pdf("Immgen_p.value_cDC2_clean.pdf")
+ggplot(data=Imm_combined1,aes(x=gene_name, y=cDC2_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(y="-log10(p_value)",title="-log10(p_value) of gene set enrichment in cDC2 fate biased genes")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+dev.off()
+```
+
+```{r}
+JS96_tmp = rm_outlier(JS96_all_fate_anno, col="pDC")
+JS91_tmp = rm_outlier(JS91_all_fate_anno, col="pDC")
+JS86_tmp = rm_outlier(JS86_all_fate_anno, col="pDC")
+JT27_tmp = rm_outlier(JT27_all_fate_anno, col="pDC")
+
+fate_anno_all = rbind(JS96_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JS91_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JS86_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")],
+                      JT27_tmp[,c("cell_name","bias_cDC1","bias_cDC2","bias_pDC")])
+fate_anno_all = fate_anno_all[!duplicated(fate_anno_all$cell_name),]
+fate_anno_all = fate_anno_all[order(fate_anno_all$cell_name),]
+
+fate_anno_all$batch = rep("JT27",nrow(fate_anno_all))
+fate_anno_all$batch[grepl("^D9JS27",fate_anno_all$cell_name)] = "JS86"
+fate_anno_all$batch[grepl("^JS91",fate_anno_all$cell_name)] = "JS91"
+fate_anno_all$batch[grepl("^JS96",fate_anno_all$cell_name)] = "JS96"
+
+fate_anno_pDC = fate_anno_all
+
+allcounts1 = allcounts
+allcounts1 = allcounts1[,colnames(allcounts1) %in% fate_anno_all$cell_name]
+allcounts1 = allcounts1[,order(colnames(allcounts1))]
+
+JT27_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JT27")
+JS86_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS86")
+JS91_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS91")
+JS96_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "JS96")
+all_list1 = get_marker_Imm_genes(allcounts1, fate_anno_all=fate_anno_all, batch = "all")
+
+marker_combined1 = rbind(JT27_list1$batch_markers,
+                        JS86_list1$batch_markers,
+                        JS91_list1$batch_markers,
+                        JS96_list1$batch_markers,
+                        all_list1$batch_markers)
+
+marker_combined_pDC = marker_combined1
+
+Imm_combined1 = rbind(JT27_list1$batch_Imm,
+                     JS86_list1$batch_Imm,
+                     JS91_list1$batch_Imm,
+                     JS96_list1$batch_Imm,
+                     all_list1$batch_Imm)
+```
+
+
+
+```{r}
+pdf("p.val_pDC_marker_genes_clean.pdf",width = 8,height = 4)
+ggplot(data=marker_combined1,aes(x=gene_name, y=pDC_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(title="-log10(pvalue) in pDC fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+  
+dev.off()
+
+pdf("Immgen_p.value_pDC_clean.pdf")
+ggplot(data=Imm_combined1,aes(x=gene_name, y=pDC_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  labs(y="-log10(p_value)",title="-log10(p_value) of gene set enrichment in pDC fate biased genes")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+dev.off()
+```
+
+
+
+```{r}
+marker_combined1 = cbind(marker_combined_cDC1[,c("cDC1_logFC", "cDC1_FDR")],
+                         marker_combined_cDC2[,c("cDC2_logFC", "cDC2_FDR")],
+                         marker_combined_pDC[,c("pDC_logFC", "pDC_FDR","method", "gene_name")])
+
+
+tmp1 = marker_combined1[marker_combined1$method=="all",]
+tmp1$method = "all_after_clean"
+tmp2 = marker_combined[marker_combined$method=="all",]
+tmp2$method = "all_before_clean"
+tmp = rbind(tmp1,tmp2)
+```
+
+```{r}
+ggplot(data=tmp,aes(x=gene_name, y=cDC1_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  geom_hline(yintercept = -log10(0.05))+
+  geom_hline(yintercept = log10(0.05))+
+  labs(title="-log10(pvalue) in cDC1 fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+```
+
+
+```{r}
+ggplot(data=tmp,aes(x=gene_name, y=cDC2_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  geom_hline(yintercept = -log10(0.05))+
+  geom_hline(yintercept = log10(0.05))+
+  labs(title="-log10(pvalue) in cDC2 fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+```
+
+```{r}
+ggplot(data=tmp,aes(x=gene_name, y=pDC_FDR, fill=method))+
+  geom_bar(stat = "identity",position=position_dodge())+
+  geom_hline(yintercept = -log10(0.05))+
+  geom_hline(yintercept = log10(0.05))+
+  labs(title="-log10(pvalue) in pDC fate bias for marker genes",y="-log10(p_value)")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+           panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                colour = "grey80"),
+        panel.border = element_rect(fill = NA,colour = "grey50"))
+```
+
+
+
+```{r}
+library(gplots)
+fate_anno_all = fate_anno_cDC1[fate_anno_cDC1$cell_name %in% intersect(fate_anno_cDC2$cell_name,fate_anno_pDC$cell_name),]
+allcounts2 = allcounts1[, colnames(allcounts1) %in% fate_anno_all$cell_name]
+allcounts2 = allcounts2[, order(colnames(allcounts2))]
+fate_anno_all = fate_anno_all[order(fate_anno_all$cell_name),]
+hm = heatmap.2(as.matrix(fate_anno_all[,c("bias_pDC","bias_cDC1","bias_cDC2")]),trace="none")
+```
+
+```{r}
+hc.rows = hclust(dist(as.matrix(fate_anno_all[,c("bias_pDC","bias_cDC1","bias_cDC2")])))
+ct = cutree(hc.rows, k=4)
+```
+
+
+```{r}
+ggplot(data=NULL,aes(fate_anno_all$bias_pDC,fill=as.factor(ct)))+geom_density(alpha=0.5)
+```
+
+```{r}
+ggplot(data=NULL,aes(fate_anno_all$bias_cDC1,fill=as.factor(ct)))+geom_density(alpha=0.5)
+```
+
+```{r}
+ggplot(data=NULL,aes(fate_anno_all$bias_cDC2,fill=as.factor(ct)))+geom_density(alpha=0.5)
+```
+
+
+```{r}
+design_cluster = model.matrix(~ 0+as.factor(ct)+fate_anno_all$batch)
+
+colnames(design_cluster) = c("multi","cDC1", "pDC","cDC2","JS91","JS96","JT27")
+
+contrasts = makeContrasts(
+    cDC1_vs_cDC2=cDC1-cDC2, 
+    cDC1_vs_pDC=cDC1-pDC, 
+    cDC2_vs_pDC=cDC2-pDC, 
+    levels=colnames(design_cluster))
+
+all_cnt = estimateDisp(allcounts2, robust=TRUE)
+
+fit = glmFit(all_cnt, design_cluster)
+
+# Run likelihood ratio tests
+lrt = glmLRT(fit,contrast=contrasts[,1])
+top = topTags(lrt,n=Inf)
+top@.Data[[1]][marker_genes,]
+```
+
+```{r}
+fate_bias = rep("multi",nrow(fate_anno_all))
+fate_bias[fate_anno_all$bias_cDC1 > 0.6] = "cDC1"
+fate_bias[fate_anno_all$bias_cDC2 > 0.7] = "cDC2"
+fate_bias[fate_anno_all$bias_pDC > 0.9] = "pDC"
+
+design_cluster = model.matrix(~ 0+fate_bias+fate_anno_all$batch)
+
+colnames(design_cluster) = c("cDC1","cDC2", "multi","pDC","JS91","JS96","JT27")
+
+contrasts = makeContrasts(
+    cDC1=cDC1-0.5*cDC2-0.5*pDC, 
+    cDC2=cDC2-0.5*pDC-0.5*cDC1, 
+    pDC=pDC-0.5*cDC1-0.5*cDC2, 
+    levels=colnames(design_cluster))
+
+all_cnt = estimateDisp(allcounts2, robust=TRUE)
+
+fit = glmFit(all_cnt, design_cluster)
+
+# Run likelihood ratio tests
+lrt = glmLRT(fit,contrast=contrasts[,2])
+top = topTags(lrt,n=Inf)
+top@.Data[[1]][marker_genes,]
+```
+
+
+```{r}
+tmp = fate_anno_all[,c("bias_cDC1", "bias_cDC2", "bias_pDC")]
+rrm = !duplicated(tmp)
+tmp = tmp[rrm,]
+tsne_out = Rtsne::Rtsne(tmp,perplexity=20)
+
+cnt = edgeR::cpm(all_cnt)
+cnt = log2(cnt[,rrm]+1)
+
+ggplot(data=NULL,aes(x=tsne_out$Y[,1],y=tsne_out$Y[,2],col=cnt["Batf3",]))+geom_point()
+```
+
+
+
+
+```{r}
+coordinates_gene_counts_flow_cytometry <- read.delim("/Users/tian.l/Dropbox/research/Dach1_paper/public_data/coordinates_gene_counts_flow_cytometry.txt", row.names=1, stringsAsFactors=FALSE)
+
+coordinates_gene_counts_flow_cytometry = coordinates_gene_counts_flow_cytometry[complete.cases(coordinates_gene_counts_flow_cytometry),]
+coordinates_gene_counts_flow_cytometry = coordinates_gene_counts_flow_cytometry[, coordinates_gene_counts_flow_cytometry$group %in% c("LT-HSC", "HSC")]
+gene_expr = coordinates_gene_counts_flow_cytometry[,-(1:26)]
+phen_data = coordinates_gene_counts_flow_cytometry[,6:15]
+
+gene_expr_t = t(gene_expr)
+G_cor = cor(t(gene_expr_t))
+
+library('biomaRt')
+mart <- useDataset("mmusculus_gene_ensembl", useMart("ensembl"))
+G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id", "external_gene_name", "description"),values=rownames(gene_expr_t) ,mart= mart)
+
+gene_expr_t = gene_expr_t[rownames(gene_expr_t) %in% G_list$ensembl_gene_id,]
+G_list = G_list[match(rownames(gene_expr_t), G_list$ensembl_gene_id),]
+rownames(gene_expr_t) = G_list$external_gene_name
+```
+
+
+```{r}
+tmpcDC1 = all_list1$batch_DEs$gene_names[all_list1$batch_DEs$cDC1_FDR<0.05 & all_list1$batch_DEs$cDC1_logFC>0]
+tmpcDC2 = all_list1$batch_DEs$gene_names[all_list1$batch_DEs$cDC2_FDR<0.05 & all_list1$batch_DEs$cDC2_logFC>0]
+tmppDC = all_list1$batch_DEs$gene_names[all_list1$batch_DEs$pDC_FDR<0.01 & all_list1$batch_DEs$pDC_logFC>0]
+
+
+```
+
+
+
+```{r}
+heatmap.2(gene_expr_t[rownames(gene_expr_t) %in% tmpcDC1,],trace="none")
+```
+
+
+```{r}
+heatmap.2(gene_expr_t[rownames(gene_expr_t) %in% tmpcDC2,],trace="none")
+```
+
+```{r}
+heatmap.2(gene_expr_t[rownames(gene_expr_t) %in% tmppDC,],trace="none")
+```
+
+
+
+
+```{r}
+pdf("DE_blood.pdf",width = 10,height = 40)
+heatmap.2(gene_expr_t[rownames(gene_expr_t) %in% c(tmpcDC1, tmpcDC2, tmppDC),],trace="none")
+dev.off()
+```
+
+```{r}
+library(scran)
+gene_expr_t_sub = gene_expr_t[order(apply(gene_expr_t,1,var),decreasing = T)[1:500],]
+#corrr = correlatePairs(gene_expr_t[rownames(gene_expr_t) %in% c(tmpcDC1, tmpcDC2, tmppDC),])
+corrr = correlatePairs(gene_expr_t_sub)#[rownames(gene_expr_t) %in% c(tmpcDC1, tmpcDC2, tmppDC),])
+
+cor_DE_genes = union(corrr$gene1[corrr$FDR<0.00001],corrr$gene2[corrr$FDR<0.00001])
+```
+
+
+```{r}
+pdf("DE_blood_cor.pdf",width = 20,height = 30)
+heatmap.2(gene_expr_t[rownames(gene_expr_t) %in% cor_DE_genes,],trace="none")
+dev.off()
+```
+
+
+```{r}
+library(pheatmap)
+tmp_DE_df = all_list1$batch_DEs[cor_DE_genes %in% rownames(gene_expr_t),]
+
+tmp_DE_df$cDC1_bias= "NO"
+tmp_DE_df$cDC1_bias[tmp_DE_df$cDC1_logFC>0 & tmp_DE_df$cDC1_FDR<0.05] = "YES"
+tmp_DE_df$cDC2_bias= "NO"
+tmp_DE_df$cDC2_bias[tmp_DE_df$cDC2_logFC>0 & tmp_DE_df$cDC2_FDR<0.05] = "YES"
+tmp_DE_df$pDC_bias= "NO"
+tmp_DE_df$pDC_bias[tmp_DE_df$pDC_logFC>0 & tmp_DE_df$pDC_FDR<0.05] = "YES"
+tmp_DE_df$cDC1_bias = as.factor(tmp_DE_df$cDC1_bias)
+tmp_DE_df$cDC2_bias = as.factor(tmp_DE_df$cDC2_bias)
+tmp_DE_df$pDC_bias = as.factor(tmp_DE_df$pDC_bias)
+#tmp_DE_df[,c("cDC1_FDR", "cDC2_FDR", "pDC_FDR")] = -log10(tmp_DE_df[,c("cDC1_FDR", "cDC2_FDR", "pDC_FDR")])
+ann_colors=list(cDC1_bias=c(NO="gray60",YES="black"),
+                cDC2_bias=c(NO="gray60",YES="black"),
+                pDC_bias=c(NO="gray60",YES="black"),
+                c.Kit=c("cyan2", "firebrick2"),
+                Sca1=c("cyan2", "firebrick2"),
+                CD150=c("cyan2", "firebrick2"),
+                Flk2=c("cyan2", "firebrick2"))
+
+rownames(tmp_DE_df) = tmp_DE_df$gene_names
+
+tmp_gene_expr = gene_expr_t[rownames(gene_expr_t) %in% cor_DE_genes, grepl("LT",colnames(gene_expr_t)) | grepl("HSPC",colnames(gene_expr_t))]
+tmp_gene_expr = tmp_gene_expr[cor_DE_genes, ]
+cell_tsne = Rtsne::Rtsne(cor(tmp_gene_expr),dim=1,theta = 0.1, max_iter=1000)
+pdf("DE_blood_pheatmap_HSPC.pdf",width = 20,height = 30)
+pheatmap(tmp_gene_expr, 
+         annotation_colors = ann_colors , 
+         show_colnames=FALSE,
+         annotation_row=(tmp_DE_df[,c("cDC1_bias", "cDC2_bias", "pDC_bias")]),
+         annotation_col = phen_data[,c("c.Kit", "Sca1", "CD150", "Flk2")])
+dev.off()
+head(tmp_DE_df)
+```
+
+```{r}
+#tmp_gene_expr = gene_expr_t[rownames(gene_expr_t) %in% cor_DE_genes, grepl("LT",colnames(gene_expr_t)) | grepl("HSPC",colnames(gene_expr_t))]
+#tmp_gene_expr = tmp_gene_expr[cor_DE_genes, ]
+
+#blood_tsne = Rtsne::Rtsne(cor(tmp_gene_expr),dim=2,theta = 0.1, max_iter=5000)
+#plot(blood_tsne$Y)
+```
+
+
+```{r}
+sisseq_cnt = log2(allcounts1$counts[cor_DE_genes, ]+1)
+sim_mat = apply(tmp_gene_expr,2,function(x){cor(x,sisseq_cnt[,1],method="pearson")})
+for (i in 2:ncol(sisseq_cnt)){
+  sim_mat = rbind(sim_mat, apply(tmp_gene_expr,2,function(x){cor(x,sisseq_cnt[,i],method="pearson")}))
+}
+rownames(sim_mat) = colnames(sisseq_cnt)
+dim(sim_mat)
+```
+
+```{r}
+fate_row = fate_anno_all
+rownames(fate_row) = fate_row$cell_name
+ann_colors = list(bias_cDC1=c("cyan2", "firebrick2"),
+                bias_cDC2=c("cyan2", "firebrick2"),
+                bias_pDC=c("cyan2", "firebrick2"))
+pdf("blood_sisseq_corr.pdf",width = 20,height = 10)
+the_ph = pheatmap(sim_mat[rownames(fate_row),], scale="column",
+         annotation_colors = ann_colors , 
+         annotation_row=(fate_row[,c("bias_cDC1", "bias_cDC2", "bias_pDC","batch")]),
+         show_rownames=FALSE,
+         show_colnames=FALSE)
+dev.off()
+```
+
+
+```{r}
+ann_colors=list(cDC1_bias=c(NO="gray60",YES="black"),
+                cDC2_bias=c(NO="gray60",YES="black"),
+                pDC_bias=c(NO="gray60",YES="black"))
+pdf("DE_blood_pheatmap_HSPC_corr.order.pdf",width = 20,height = 30)
+pheatmap(tmp_gene_expr[,the_ph$tree_col$order], 
+         cluster_cols = FALSE,
+         annotation_colors = ann_colors , 
+         annotation_row=(tmp_DE_df[,c("cDC1_bias", "cDC2_bias", "pDC_bias")]))
+dev.off()
+```
+
+
+```{r}
+bias_3fate = t(fate_row[,c("bias_cDC1", "bias_cDC2", "bias_pDC")]) %*% sim_mat[rownames(fate_row),]
+bias_3fate = bias_3fate/rowSums(bias_3fate)
+#bias_3fate = t(t(bias_3fate)/colSums(bias_3fate))
+pheatmap(bias_3fate,scale = "column")
+```
+
+```{r}
+regulatory_genes = get_genes_by_GO(returns="external_gene_name",
+                dataset="mmusculus_gene_ensembl",
+                go=c("GO:0006338", "GO:0003682", "GO:0008134", "GO:0043392", "GO:0003677", "GO:0003700","GO:0001191","GO:0005515","GO:0007275"))
+# http://wlab.ethz.ch/cspa/#abstract
+mouse_surface_protein <- read.csv("~/Dropbox/research/sis_seq/mouse_surface_protein.csv", stringsAsFactors=FALSE)
+```
+
+
+
+```{r}
+CDP_overlap = CDP_genes[CDP_genes %in% rownames(allcounts2)]
+
+pdf("venn_diagram_pDC_new.pdf")
+pDC_genes = tmppDC
+area1 = length(pDC_genes)
+area2 = length(CDP_overlap)
+area3 = length(index$pDC_genes)
+n12 = length(intersect(pDC_genes, CDP_overlap))
+n23 = length(intersect(CDP_overlap, index$pDC_genes))
+n13 = length(intersect(pDC_genes, index$pDC_genes))
+n123 = length(intersect(index$pDC_genes, intersect(pDC_genes, CDP_overlap)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(pDC)", "CDP_Immgen", "pDC_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+intersect(index$pDC_genes, intersect(pDC_genes, CDP_overlap))
+
+```
+
+
+
+
+```{r}
+coexpressed_Nat_Imm <- read.csv("~/Dropbox/research/sis_seq/Nat_Imm/coexpressed_genes.csv", sep=",", stringsAsFactors=FALSE)
+coexpressed_Nat_Imm = coexpressed_Nat_Imm$genename[coexpressed_Nat_Imm$genename %in% rownames(allcounts2)]
+
+#coexpressed_Nat_Imm <- read.csv("~/Dropbox/research/sis_seq/Nat_Imm/HVG_genes.csv", sep=",", stringsAsFactors=FALSE)
+#coexpressed_Nat_Imm = coexpressed_Nat_Imm$X [coexpressed_Nat_Imm$X %in% rownames(allcounts2)]
+
+pdf("venn_diagram_pDC_Nat_Imm.pdf")
+pDC_genes = tmppDC
+area1 = length(pDC_genes)
+area2 = length(coexpressed_Nat_Imm)
+area3 = length(index$pDC_genes)
+n12 = length(intersect(pDC_genes, coexpressed_Nat_Imm))
+n23 = length(intersect(coexpressed_Nat_Imm, index$pDC_genes))
+n13 = length(intersect(pDC_genes, index$pDC_genes))
+n123 = length(intersect(index$pDC_genes, intersect(pDC_genes, coexpressed_Nat_Imm)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(pDC)", "HVG_Nat_Imm", "pDC_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+```
+cc
+
+```{r}
+pdf("venn_diagram_pDC_all.pdf")
+tmp_int_pDC=venn(list(pDC_SISeq=pDC_genes,
+          CDP_Ig=CDP_overlap,
+          pDC_Ig=index$pDC_genes,
+          Nat_Imm=coexpressed_Nat_Imm),intersection=TRUE)
+dev.off()
+write.table(pDC_genes,file="pDC_genes.csv",row.names = F, quote = F,col.names = F)
+#write.table(CDP_overlap,file="CDP_overlap_genes.csv",row.names = F, quote = F,col.names = F)
+write.table(index$pDC_genes,file="pDC_Ig_genes.csv",row.names = F, quote = F,col.names = F)
+#write.table(coexpressed_Nat_Imm,file="Nat_Imm_genes.csv",row.names = F, quote = F,col.names = F)
+```
+
+```{r}
+coexpressed_Nat <- read.csv("~/Dropbox/research/sis_seq/Nat/coexpressed_genes.csv", sep=",", stringsAsFactors=FALSE)
+coexpressed_Nat = coexpressed_Nat$genename [coexpressed_Nat$genename %in% rownames(allcounts2)]
+
+#coexpressed_Nat <- read.csv("~/Dropbox/research/sis_seq/Nat/HVG_genes.csv", sep=",", stringsAsFactors=FALSE)
+#coexpressed_Nat = coexpressed_Nat$X [coexpressed_Nat$X %in% rownames(allcounts2)]
+
+pdf("venn_diagram_pDC_Nat.pdf")
+pDC_genes = tmppDC
+area1 = length(pDC_genes)
+area2 = length(coexpressed_Nat)
+area3 = length(index$pDC_genes)
+n12 = length(intersect(pDC_genes, coexpressed_Nat))
+n23 = length(intersect(coexpressed_Nat, index$pDC_genes))
+n13 = length(intersect(pDC_genes, index$pDC_genes))
+n123 = length(intersect(index$pDC_genes, intersect(pDC_genes, coexpressed_Nat)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(pDC)", "HVG_Nat", "pDC_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+```
+
+```{r}
+coexpressed_Blood <- cor_DE_genes
+
+pdf("venn_diagram_pDC_Blood.pdf")
+pDC_genes = tmppDC
+area1 = length(pDC_genes)
+area2 = length(coexpressed_Blood)
+area3 = length(index$pDC_genes)
+n12 = length(intersect(pDC_genes, coexpressed_Blood))
+n23 = length(intersect(coexpressed_Blood, index$pDC_genes))
+n13 = length(intersect(pDC_genes, index$pDC_genes))
+n123 = length(intersect(index$pDC_genes, intersect(pDC_genes, coexpressed_Blood)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(pDC)", "HVG_Blood", "pDC_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+```
+
+```{r}
+pdf("venn_diagram_pDC_LSK.pdf")
+tmp_int_pDC_LSK=venn(list(pDC_SISeq=pDC_genes,
+          Blood=coexpressed_Blood,
+          Nat=coexpressed_Nat),intersection=TRUE)
+dev.off()
+```
+
+
+
+```{r}
+pDC_DE = all_list1$batch_DEs[all_list1$batch_DEs$gene_names %in% tmppDC, ]
+
+pDC_DE$overlap = "NA"
+for (i in names(attr(tmp_int_pDC, "intersection"))){
+  pDC_DE$overlap[pDC_DE$gene_names %in% attr(tmp_int_pDC, "intersection")[[i]]] = i
+}
+
+pDC_DE$overlap_LSK = "NA"
+for (i in names(attr(tmp_int_pDC_LSK, "intersection"))){
+  pDC_DE$overlap_LSK[pDC_DE$gene_names %in% attr(tmp_int_pDC_LSK, "intersection")[[i]]] = i
+}
+
+pDC_DE$surface_protein = "No"
+pDC_DE$surface_protein[pDC_DE$gene_names %in% mouse_surface_protein$ENTREZ.gene.symbol] = "Yes"
+pDC_DE$regulatory_genes = "No"
+pDC_DE$regulatory_genes[pDC_DE$gene_names %in% regulatory_genes] = "Yes"
+
+pDC_DE1 = pDC_DE
+
+
+
+write.csv(pDC_DE,"pDC_biased_genes_new.csv",row.names = FALSE)
+```
+
+
+
+```{r}
+pdf("venn_diagram_cDC1_new.pdf")
+cDC1_genes = tmpcDC1
+area1 = length(cDC1_genes)
+area2 = length(CDP_overlap)
+area3 = length(index$cDC1_genes)
+n12 = length(intersect(cDC1_genes, CDP_overlap))
+n23 = length(intersect(CDP_overlap, index$cDC1_genes))
+n13 = length(intersect(cDC1_genes, index$cDC1_genes))
+n123 = length(intersect(index$cDC1_genes, intersect(cDC1_genes, CDP_overlap)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(cDC1)", "CDP_Immgen", "cDC1_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+intersect(index$cDC1_genes, intersect(cDC1_genes, CDP_overlap))
+
+```
+
+```{r}
+pdf("venn_diagram_cDC1_all.pdf")
+tmp_int_cDC1=venn(list(cDC1_SISeq=cDC1_genes,
+          CDP_Ig=CDP_overlap,
+          cDC1_Ig=index$cDC1_genes,
+          Nat_Imm=coexpressed_Nat_Imm),intersection=TRUE)
+dev.off()
+
+write.table(cDC1_genes,file="cDC1_genes.csv",row.names = F, quote = F,col.names = F)
+#write.table(CDP_overlap,file="CDP_overlap_genes.csv",row.names = F, quote = F,col.names = F)
+write.table(index$cDC1_genes,file="cDC1_Ig_genes.csv",row.names = F, quote = F,col.names = F)
+#write.table(coexpressed_Nat_Imm,file="Nat_Imm_genes.csv",row.names = F, quote = F,col.names = F)
+```
+
+```{r}
+pdf("venn_diagram_cDC1_LSK.pdf")
+tmp_int_cDC1_LSK=venn(list(cDC1_SISeq=cDC1_genes,
+          Blood=coexpressed_Blood,
+          Nat=coexpressed_Nat),intersection=TRUE)
+dev.off()
+```
+
+
+```{r}
+pDC_DE = all_list1$batch_DEs[all_list1$batch_DEs$gene_names %in% tmpcDC1, ]
+
+pDC_DE$overlap = "NA"
+for (i in names(attr(tmp_int_cDC1, "intersection"))){
+  pDC_DE$overlap[pDC_DE$gene_names %in% attr(tmp_int_cDC1, "intersection")[[i]]] = i
+}
+
+pDC_DE$overlap_LSK = "NA"
+for (i in names(attr(tmp_int_cDC1_LSK, "intersection"))){
+  pDC_DE$overlap_LSK[pDC_DE$gene_names %in% attr(tmp_int_cDC1_LSK, "intersection")[[i]]] = i
+}
+
+pDC_DE$surface_protein = "No"
+pDC_DE$surface_protein[pDC_DE$gene_names %in% mouse_surface_protein$ENTREZ.gene.symbol] = "Yes"
+pDC_DE$regulatory_genes = "No"
+pDC_DE$regulatory_genes[pDC_DE$gene_names %in% regulatory_genes] = "Yes"
+cDC1_DE = pDC_DE
+write.csv(pDC_DE,"cDC1_biased_genes.csv",row.names = FALSE)
+```
+
+
+
+```{r}
+pdf("venn_diagram_cDC2_new.pdf")
+cDC2_genes = tmpcDC2
+area1 = length(cDC2_genes)
+area2 = length(CDP_overlap)
+area3 = length(index$cDC2_genes)
+n12 = length(intersect(cDC2_genes, CDP_overlap))
+n23 = length(intersect(CDP_overlap, index$cDC2_genes))
+n13 = length(intersect(cDC2_genes, index$cDC2_genes))
+n123 = length(intersect(index$cDC2_genes, intersect(cDC2_genes, CDP_overlap)))
+
+grid.newpage()
+draw.triple.venn(area1 = area1, area2 = area2, area3 = area3, n12 = n12, n23 = n23, n13 = n13, 
+    n123 = n123, category = c("SIS-seq(cDC2)", "CDP_Immgen", "cDC2_Immgen"), lty = "blank", 
+    fill = c("skyblue", "pink1", "mediumorchid"))
+dev.off()
+intersect(index$cDC2_genes, intersect(cDC2_genes, CDP_overlap))
+
+```
+
+```{r}
+pdf("venn_diagram_cDC2_all.pdf")
+tmp_int_cDC2=venn(list(cDC2_SISeq=cDC2_genes,
+          CDP_Ig=CDP_overlap,
+          cDC2_Ig=index$cDC2_genes,
+          Nat_Imm=coexpressed_Nat_Imm),intersection=TRUE)
+dev.off()
+write.table(cDC2_genes,file="cDC2_genes.csv",row.names = F, quote = F,col.names = F)
+write.table(CDP_overlap,file="CDP_overlap_genes.csv",row.names = F, quote = F,col.names = F)
+write.table(index$cDC2_genes,file="cDC2_Ig_genes.csv",row.names = F, quote = F,col.names = F)
+write.table(coexpressed_Nat_Imm,file="Nat_Imm_genes.csv",row.names = F, quote = F,col.names = F)
+```
+
+```{r}
+pdf("venn_diagram_cDC2_LSK.pdf")
+tmp_int_cDC2_LSK=venn(list(cDC2_SISeq=cDC2_genes,
+          Blood=coexpressed_Blood,
+          Nat=coexpressed_Nat),intersection=TRUE)
+dev.off()
+```
+
+
+```{r}
+pDC_DE = all_list1$batch_DEs[all_list1$batch_DEs$gene_names %in% tmpcDC2, ]
+
+pDC_DE$overlap = "NA"
+for (i in names(attr(tmp_int_cDC2, "intersection"))){
+  pDC_DE$overlap[pDC_DE$gene_names %in% attr(tmp_int_cDC2, "intersection")[[i]]] = i
+}
+
+pDC_DE$overlap_LSK = "NA"
+for (i in names(attr(tmp_int_cDC2_LSK, "intersection"))){
+  pDC_DE$overlap_LSK[pDC_DE$gene_names %in% attr(tmp_int_cDC2_LSK, "intersection")[[i]]] = i
+}
+
+pDC_DE$surface_protein = "No"
+pDC_DE$surface_protein[pDC_DE$gene_names %in% mouse_surface_protein$ENTREZ.gene.symbol] = "Yes"
+pDC_DE$regulatory_genes = "No"
+pDC_DE$regulatory_genes[pDC_DE$gene_names %in% regulatory_genes] = "Yes"
+cDC2_DE = pDC_DE
+write.csv(pDC_DE,"cDC2_biased_genes.csv",row.names = FALSE)
+```
+
+# try glmnet
+
+```{r}
+GSE60781_RPKM <- read.delim("~/Dropbox/research/sis_seq/Nat_Imm/GSE60781_RPKM.txt", stringsAsFactors=FALSE)
+rownames(GSE60781_RPKM) = GSE60781_RPKM$geneName
+GSE60781_RPKM = GSE60781_RPKM[,-1]
+keep1 = (apply(GSE60781_RPKM, 1, function(x) mean(x[x>0])) > 2)  # average count larger than 5
+keep2 = (rowSums(GSE60781_RPKM>0) > 20)  # expressed in at least six cells
+GSE60781_RPKM = as.matrix(GSE60781_RPKM[keep1 & keep2, ])
+
+library(glmnet)
+uni_genes = intersect(rownames(GSE60781_RPKM) , c(tmpcDC1, tmpcDC2, tmppDC))
+gene_expr_Pre = t(scale(t(GSE60781_RPKM[uni_genes,])))
+gene_expr_Tra = t(scale(t(log2(allcounts1$counts[uni_genes, ]+1))))
+glmout = glmnet(t(gene_expr_Tra), as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")]),family="multinomial", alpha=0.1)
+
+cvfit = cv.glmnet(t(gene_expr_Tra), as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")]), family = "multinomial", alpha = 0.1, type.measure="mse")
+message("At an optimal value of lambda, the misclassification rate for mature populations is ",round(100*cvfit$cvm[cvfit$lambda == cvfit$lambda.1se],digits = 2), "%.")
+uselambda <- cvfit$lambda.1se
+```
+
+```{r}
+the_tmp = glmout$beta$bias_pDC[,which(glmout$lambda==cvfit$lambda.1se)]
+the_tmp = the_tmp[the_tmp>0]
+the_tmp = the_tmp[order(the_tmp,decreasing = TRUE)]
+glmout_pDC = the_tmp
+glmout_pDC
+```
+
+
+```{r}
+the_tmp = glmout$beta$bias_cDC1[,which(glmout$lambda==cvfit$lambda.1se)]
+the_tmp = the_tmp[the_tmp>0]
+the_tmp = the_tmp[order(the_tmp,decreasing = TRUE)]
+glmout_cDC1 = the_tmp
+glmout_cDC1
+```
+
+```{r}
+the_tmp = glmout$beta$bias_cDC2[,which(glmout$lambda==cvfit$lambda.1se)]
+the_tmp = the_tmp[the_tmp>0]
+the_tmp = the_tmp[order(the_tmp,decreasing = TRUE)]
+glmout_cDC2 = the_tmp
+glmout_cDC2
+```
+
+```{r}
+the_pre = predict(glmout,t(gene_expr_Pre),s=uselambda, type = "response")
+```
+
+```{r}
+ribo_mito_genes = get_genes_by_GO(returns="external_gene_name",
+                dataset="mmusculus_gene_ensembl",
+                go=c("GO:0005840", "GO:0005739"))
+cc_genes = get_genes_by_GO(returns="external_gene_name",
+                dataset="mmusculus_gene_ensembl",
+                go=c("GO:0007049"))
+```
+
+
+
+```{r,message=FALSE,warning=FALSE}
+require(scde)
+n.cores <- 4
+cd = allcounts1$counts
+cd = cd[rownames(cd) %in%  c(tmpcDC1, tmpcDC2, tmppDC),]
+
+cd = cd[!grepl("^Hist",rownames(cd)),]
+cd = cd[!(rownames(cd) %in% ribo_mito_genes),]
+cd = cd[!(rownames(cd) %in% cc_genes),]
+cd = as.data.frame(cd)
+
+sg <- factor(rep("all", ncol(cd)))
+names(sg) <- colnames(cd)
+save(cd,file="fate_count.RData")
+#o.ifm <- scde.error.models(counts=cd,n.cores=n.cores,threshold.segmentation=F,save.crossfit.plots=F,save.model.plots=T,verbose=1,min.size.entries=1000)
+
+#save(o.ifm, file="scde_error_model.RData")
+load("~/Dropbox/research/sis_seq/scde_error_model.RData")
+```
+
+
+```{r}
+  #compute cell wise gene expression posteriors
+  o.prior <- scde.expression.prior(models=o.ifm,counts=cd,length.out=400,show.plot=T)
+  posteriors <- scde.posteriors(o.ifm, cd, o.prior, n.cores=n.cores, return.individual.posterior.modes=T, return.individual.posteriors=T)
+  
+  #determine posterior modes
+  grid <- as.numeric(colnames(posteriors$jp))
+  jp_modes <- apply(posteriors$jp,1,function(x) sum(x * grid))
+  jp_modes <- sapply(jp_modes, function(x) which.min(abs(x - grid)))
+  
+  library(parallel)
+  #perform integration along posteriors to compute posterior odds ratio
+  normalized <- do.call(cbind, mclapply(colnames(cd), function(cell) {
+    sapply(rownames(posteriors$jp), function(gene) {
+      x <- jp_modes[gene]
+      probability_higher <- sum(exp(posteriors$post[[cell]][gene,x:ncol(posteriors$post[[cell]])] ))
+      probability_lower <- sum(exp(posteriors$post[[cell]][gene,1:x] ))
+      probability_higher/probability_lower
+      
+    })
+  }, mc.cores = n.cores))
+  
+  colnames(normalized) <- colnames(cd)
+  normalized <- log2(normalized)
+  normalized[normalized == Inf] <- max(normalized[normalized != Inf])
+  
+
+```
+
+
+```{r}
+glmout1 = glmnet(t(normalized), as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")]),family="multinomial", alpha=0.1)
+
+cvfit1 = cv.glmnet(t(normalized), as.matrix(fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")]), family = "multinomial", alpha = 0.1, type.measure="mse")
+message("At an optimal value of lambda, the misclassification rate for mature populations is ",round(100*cvfit1$cvm[cvfit1$lambda == cvfit1$lambda.1se],digits = 2), "%.")
+uselambda <- cvfit1$lambda.1se
+```
+
+
+```{r}
+the_tmp = glmout1$beta$bias_pDC[,which(glmout1$lambda==cvfit1$lambda.1se)]
+the_tmp = the_tmp[the_tmp>0]
+the_tmp = the_tmp[order(the_tmp,decreasing = TRUE)]
+glmout_pDC = the_tmp
+glmout_pDC
+```
+
+
+```{r}
+the_tmp = glmout1$beta$bias_cDC1[,which(glmout1$lambda==cvfit1$lambda.1se)]
+the_tmp = the_tmp[the_tmp>0]
+the_tmp = the_tmp[order(the_tmp,decreasing = TRUE)]
+glmout_cDC1 = the_tmp
+glmout_cDC1
+```
+
+
+
+```{r}
+the_tmp = glmout1$beta$bias_cDC2[,which(glmout1$lambda==cvfit1$lambda.1se)]
+the_tmp = the_tmp[the_tmp>0]
+the_tmp = the_tmp[order(the_tmp,decreasing = TRUE)]
+glmout_cDC2 = the_tmp
+glmout_cDC2
+```
+
+
+```{r}
+
+
+
+subselect_genes = function(DE_df, ribo_mito_genes, cc_genes, glmout_genes, col_FDR,fdr_cutoff=0.001){
+  DE_df = DE_df[!grepl("^Hist",DE_df$gene_names),]
+  print(dim(DE_df))
+  DE_df = DE_df[!(DE_df$gene_names %in% ribo_mito_genes),]
+  print(dim(DE_df))
+  print("Olfm1" %in% DE_df$gene_names)
+  DE_df = DE_df[!((grepl("^100", DE_df$gene_names) | grepl("Rik", DE_df$gene_names)) & DE_df[,col_FDR]>0.0001),]
+  print(dim(DE_df))
+  print("Olfm1" %in% DE_df$gene_names)
+  DE_df = DE_df[!((!(DE_df$gene_names %in% glmout_genes)) & (DE_df$regulatory_genes=="No") & DE_df[,col_FDR]>fdr_cutoff),]
+  print(dim(DE_df))
+  print("Olfm1" %in% DE_df$gene_names)
+  DE_df = DE_df[DE_df$regulatory_genes=="Yes" | ( (!grepl(":",DE_df$overlap))  & (DE_df$gene_names %in% glmout_genes)),]
+  print(dim(DE_df))
+  print("Olfm1" %in% DE_df$gene_names)
+  DE_df = DE_df[!(DE_df$gene_names %in% cc_genes)|(DE_df$regulatory_genes=="Yes"),]
+  print(dim(DE_df))
+  print("Olfm1" %in% DE_df$gene_names)
+  return(DE_df)
+}
+
+pDC_sel = subselect_genes(pDC_DE1, ribo_mito_genes, cc_genes, names(glmout_pDC), "pDC_FDR")
+pDC_sel$STEMNET = "No"
+pDC_sel$STEMNET[pDC_sel$gene_names %in% names(glmout_pDC)] = "pDC"
+cDC1_sel = subselect_genes(cDC1_DE, ribo_mito_genes, cc_genes, names(glmout_cDC1), "cDC1_FDR")
+cDC1_sel$STEMNET = "No"
+cDC1_sel$STEMNET[cDC1_sel$gene_names %in% names(glmout_cDC1)] = "cDC1"
+cDC2_sel = subselect_genes(cDC2_DE, ribo_mito_genes, cc_genes, names(glmout_cDC2), "cDC2_FDR")
+cDC2_sel$STEMNET = "No"
+cDC2_sel$STEMNET[cDC2_sel$gene_names %in% names(glmout_cDC2)] = "cDC2"
+write.csv(rbind(pDC_sel,cDC1_sel, cDC2_sel),file="selected_genes_3fate.csv",row.names = FALSE)
+```
+
+```{r}
+pDC_sel_sel = pDC_sel[pDC_sel$overlap == "pDC_SISeq" & !(pDC_sel$overlap_LSK ==  "pDC_SISeq") | (pDC_sel$STEMNET == "pDC" & pDC_sel$regulatory_genes == "Yes"),]
+cDC1_sel_sel = cDC1_sel[cDC1_sel$overlap == "cDC1_SISeq" & !(cDC1_sel$overlap_LSK ==  "cDC1_SISeq") | (cDC1_sel$STEMNET == "cDC1" & cDC1_sel$regulatory_genes == "Yes"),]
+cDC2_sel_sel = cDC2_sel[cDC2_sel$overlap == "cDC2_SISeq" & !(cDC2_sel$overlap_LSK ==  "cDC2_SISeq") | (cDC2_sel$STEMNET == "cDC2" & cDC2_sel$regulatory_genes == "Yes"),]
+
+write.csv(rbind(pDC_sel_sel,cDC1_sel_sel, cDC2_sel_sel),file="sub_selected_genes_3fate.csv",row.names = FALSE)
+```
+
+manually add genes
+```{r}
+row_na = (rbind(pDC_sel,cDC1_sel, cDC2_sel))
+row_na = unique(row_na$gene_names)
+
+ccrX = row_na[grepl("^Ccr",row_na)]
+RagX = row_na[grepl("^Rag",row_na)]
+SoxX = row_na[grepl("^Sox",row_na)]
+IrfX = row_na[grepl("^Irf",row_na)]
+KlfX = row_na[grepl("^Klf",row_na)]
+ZfpX = row_na[grepl("^Zfp",row_na)]
+
+other_genes = c("Six5", "Id2", "Cd74", "Irf8", "Naaa", "Olfm1", "Vim", "Plac8", "Pqlc3", "Batf3","Tcf4","Brd3","Jade1")
+
+interest_genes = unique(c(ccrX, RagX, SoxX, IrfX, KlfX, ZfpX, other_genes,marker_genes))
+interest_genes
+```
+
+
+```{r}
+broadgpp.brie.library.contents <- read.delim("~/Dropbox/research/sis_seq/broadgpp-brie-library-contents.txt", stringsAsFactors=FALSE)
+res_df = rbind(pDC_sel,cDC1_sel, cDC2_sel)
+res_df = res_df[!duplicated(res_df$gene_names),]
+res_df0 = res_df
+broadgpp.brie.library.contents = broadgpp.brie.library.contents[(broadgpp.brie.library.contents$Target.Gene.Symbol %in% res_df$gene_names)|(broadgpp.brie.library.contents$Target.Gene.Symbol %in% interest_genes),]
+write.csv(broadgpp.brie.library.contents,file="selected_gRNA_broadgpp.brie.library_457X4genes.csv",row.names = FALSE)
+dim(res_df)
+
+##########
+
+broadgpp.brie.library.contents <- read.delim("~/Dropbox/research/sis_seq/broadgpp-brie-library-contents.txt", stringsAsFactors=FALSE)
+res_df = rbind(pDC_sel_sel,cDC1_sel_sel, cDC2_sel_sel)
+res_df = res_df[!duplicated(res_df$gene_names),]
+
+broadgpp.brie.library.contents = broadgpp.brie.library.contents[(broadgpp.brie.library.contents$Target.Gene.Symbol %in% res_df$gene_names)|(broadgpp.brie.library.contents$Target.Gene.Symbol %in% interest_genes),]
+write.csv(broadgpp.brie.library.contents,file="selected_gRNA_list_102genes.csv",row.names = FALSE)
+
+broadgpp.brie.sub1 = broadgpp.brie.library.contents[!duplicated(broadgpp.brie.library.contents$Target.Gene.Symbol),]
+broadgpp.brie.sub2 = broadgpp.brie.library.contents[duplicated(broadgpp.brie.library.contents$Target.Gene.Symbol),]
+broadgpp.brie.sub2 = broadgpp.brie.sub2[!duplicated(broadgpp.brie.sub2$Target.Gene.Symbol),]
+broadgpp.brie.sub = rbind(broadgpp.brie.sub1, broadgpp.brie.sub2)
+broadgpp.brie.sub = broadgpp.brie.sub[order(broadgpp.brie.sub$Target.Gene.Symbol),]
+write.csv(broadgpp.brie.sub1,file="selected_gRNA_list_189genes_1gRNA.csv",row.names = FALSE)
+```
+
+
+
+```{r}
+# tmpp = normalized
+# tmpp[tmpp>20] = 20
+# 
+# raw_gene_name = rownames(tmpp)
+# rownames(tmpp) = paste0("GENE",1:nrow(tmpp))
+# 
+# the_data = cbind(t(tmpp), (fate_anno_pDC[,c("bias_cDC1", "bias_cDC2", "bias_pDC")]))
+# f <- as.formula(paste("bias_cDC1+bias_cDC2+bias_pDC ~", paste(rownames(tmpp), collapse = " + ")))
+# 
+# nn <- neuralnet(f,data=the_data,hidden=c(100,10),linear.output=T)
+# 
+# pr.nn <- compute(nn,the_data[,!(colnames(the_data) %in% c("bias_cDC1", "bias_cDC2", "bias_pDC"))])
+```
+
+
+```{r}
+# library(randomForest)
+# 
+# 
+# rf_out = randomForest(bias_cDC1~.,data=the_data,
+#                       importance=TRUE, 
+#                       ntree=2000)
+```
+
+
+```{r}
+tno_cnt = log2(allcounts1$counts[uni_genes, ]+1)
+the_theme =   theme(text = element_text(size=15,face = "bold"),
+        plot.title = element_text(size=20,hjust = 0.5),
+        axis.ticks.x=element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+#ggplot_genes
+
+p1 = ggplot(data=NULL,aes(x=1:ncol(normalized),y=tno_cnt["Batf3",order(fate_anno_pDC$bias_cDC1)]))+
+  geom_bar(stat="identity")+
+  labs(x="cDC1 fate bias",y="gene expression",title="Batf3")+the_theme
+
+p2 = ggplot(data=NULL,aes(x=1:ncol(normalized),y=tno_cnt["Batf3",order(fate_anno_pDC$bias_cDC1)]))+
+  geom_bar(stat="identity")+
+  labs(x="cDC1 fate bias",y="gene expression",title="Batf3")+the_theme
+```
+
+
+```{r}
+library(ggpubr)
+pdf("FS_sincells.pdf",width = 8,height = 8)
+ggarrange(p1+ ylim(0.1, 0.55),p2+ ylim(0, 0.86),ncol = 1, nrow = 2,labels=c("C", ""),font.label=list(size = 20, face = "bold"))
+dev.off()
+```
+
+
+
+

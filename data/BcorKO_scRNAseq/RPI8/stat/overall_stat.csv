@@ -1,0 +1,7 @@
+status,count
+barcode_unmatch_ambiguous_mapping,77982
+barcode_unmatch_unaligned,1525309
+barcode_unmatch_aligned,1055784
+barcode_unmatch_mapped_to_exon,4511759
+barcode_match,50448586
+barcode_unmatch_mapped_to_intron,1288769

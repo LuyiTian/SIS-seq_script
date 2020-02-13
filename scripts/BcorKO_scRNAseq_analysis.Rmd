@@ -1,0 +1,1272 @@
+---
+title: "NN168 analysis"
+output: html_notebook
+---
+
+
+```{r,warning=FALSE,message=FALSE}
+library(scater)
+library(scran)
+library(scPipe)
+library(ggplot2)
+library(Seurat)
+library(batchelor)
+library(dplyr)
+library(RColorBrewer)
+library(pheatmap)
+set.seed(100000)
+```
+
+
+```{r}
+sce_rpi2=create_sce_by_dir("/Users/tian.l/Dropbox/research/sis_seq/NN168/RPI2",organism="mmusculus_gene_ensembl",gene_id_type="ensembl_gene_id")
+sce_rpi4=create_sce_by_dir("/Users/tian.l/Dropbox/research/sis_seq/NN168/RPI4",organism="mmusculus_gene_ensembl",gene_id_type="ensembl_gene_id")
+sce_rpi6=create_sce_by_dir("/Users/tian.l/Dropbox/research/sis_seq/NN168/RPI6",organism="mmusculus_gene_ensembl",gene_id_type="ensembl_gene_id")
+sce_rpi7=create_sce_by_dir("/Users/tian.l/Dropbox/research/sis_seq/NN168/RPI7",organism="mmusculus_gene_ensembl",gene_id_type="ensembl_gene_id")
+sce_rpi8=create_sce_by_dir("/Users/tian.l/Dropbox/research/sis_seq/NN168/RPI8",organism="mmusculus_gene_ensembl",gene_id_type="ensembl_gene_id")
+#sce_rpi9=create_sce_by_dir("/Users/tian.l/Dropbox/research/sis_seq/NN168/RPI9",organism="mmusculus_gene_ensembl",gene_id_type="ensembl_gene_id")
+sce_rpi10=create_sce_by_dir("/Users/tian.l/Dropbox/research/sis_seq/NN168/RPI10",organism="mmusculus_gene_ensembl",gene_id_type="ensembl_gene_id")
+```
+
+
+```{r}
+qc_norm = function(sce){
+  sce = calculate_QC_metrics(sce)
+  sce = sce[,sce$total_count_per_cell>10]
+  sce = detect_outlier(sce,comp=2)
+  sce = remove_outliers(sce)
+  clusters <- quickCluster(sce)
+  sce <- computeSumFactors(sce, cluster=clusters)
+  sce <- logNormCounts(sce)
+  sce
+}
+
+sce_rpi2 = qc_norm(sce_rpi2)
+sce_rpi4 = qc_norm(sce_rpi4)
+sce_rpi6 = qc_norm(sce_rpi6)
+sce_rpi7 = qc_norm(sce_rpi7)
+sce_rpi8 = qc_norm(sce_rpi8)
+#sce_rpi9 = qc_norm(sce_rpi9)
+sce_rpi10 = qc_norm(sce_rpi10)
+```
+
+
+```{r}
+comm_genes = Reduce(intersect,list(rownames(sce_rpi2),
+                      rownames(sce_rpi4),
+                      rownames(sce_rpi6),
+                      rownames(sce_rpi7),
+                      rownames(sce_rpi8),
+                      #rownames(sce_rpi9),
+                      rownames(sce_rpi10)))
+
+rm_genes = function(sce){
+  if (any(grepl("^Hist",rownames(sce)))){
+      sce = sce[!grepl("^Hist",rownames(sce)),]
+  }
+  if (any(grepl("^Gm",rownames(sce)))){
+      sce = sce[!grepl("^Gm",rownames(sce)),]
+  }
+  if (any(grepl("^Rps",rownames(sce)))){
+      sce = sce[!grepl("^Rps",rownames(sce)),]
+  }
+  if (any(grepl("^Rpl",rownames(sce)))){
+      sce = sce[!grepl("^Rpl",rownames(sce))]
+  }
+    if (any(grepl("^Bcl2a",rownames(sce)))){
+      sce = sce[!grepl("^Bcl2a",rownames(sce))]
+    }
+      if (any(grepl("^H2ac",rownames(sce)))){
+      sce = sce[!grepl("^H2ac",rownames(sce))]
+  }
+  sce
+}
+
+
+sce_rpi2 = sce_rpi2[comm_genes,]
+sce_rpi4 = sce_rpi4[comm_genes,]
+sce_rpi6 = sce_rpi6[comm_genes,]
+sce_rpi7 = sce_rpi7[comm_genes,]
+sce_rpi8 = sce_rpi8[comm_genes,]
+#sce_rpi9 = sce_rpi9[comm_genes,]
+sce_rpi10 = sce_rpi10[comm_genes,]
+
+sce_rpi2 = convert_geneid(sce_rpi2)
+# library(biomaRt)
+# ensembl <- useMart("ensembl")
+# ensembl = useDataset("mmusculus_gene_ensembl",mart=ensembl)
+# getBM(attributes=c('ensembl_gene_id', 'external_gene_name'),
+#      filters = 'ensembl_gene_id',
+#      values = rownames(sce_rpi4),
+#      mart = ensembl)
+# converted <- read.delim("~/Downloads/converted.tsv", header=FALSE)
+# rownames(sce_rpi2) = converted$V2
+
+rownames(sce_rpi4) = rownames(sce_rpi2)
+rownames(sce_rpi6) = rownames(sce_rpi2)
+rownames(sce_rpi7) = rownames(sce_rpi2)
+rownames(sce_rpi8) = rownames(sce_rpi2)
+rownames(sce_rpi10) = rownames(sce_rpi2)
+
+sce_rpi2 = rm_genes(sce_rpi2)
+sce_rpi4 = rm_genes(sce_rpi4)
+sce_rpi6 = rm_genes(sce_rpi6)
+sce_rpi7 = rm_genes(sce_rpi7)
+sce_rpi8 = rm_genes(sce_rpi8)
+sce_rpi10 = rm_genes(sce_rpi10)
+
+sce_rpi2$batch = "RPI2"
+sce_rpi4$batch = "RPI4"
+sce_rpi6$batch = "RPI6"
+sce_rpi7$batch = "RPI7"
+sce_rpi8$batch = "RPI8"
+#sce_rpi9$batch = "rpi9"
+sce_rpi10$batch = "RPI10"
+
+colnames(sce_rpi2) = paste(sce_rpi2$batch,colnames(sce_rpi2),sep="_")
+colnames(sce_rpi4) = paste(sce_rpi4$batch,colnames(sce_rpi4),sep="_")
+colnames(sce_rpi6) = paste(sce_rpi6$batch,colnames(sce_rpi6),sep="_")
+colnames(sce_rpi7) = paste(sce_rpi7$batch,colnames(sce_rpi7),sep="_")
+colnames(sce_rpi8) = paste(sce_rpi8$batch,colnames(sce_rpi8),sep="_")
+colnames(sce_rpi10) = paste(sce_rpi10$batch,colnames(sce_rpi10),sep="_")
+
+sce_merge = cbind(sce_rpi2,
+                  sce_rpi4,
+                  sce_rpi6,
+                  sce_rpi7,
+                  sce_rpi8,
+                  #sce_rpi9,
+                  sce_rpi10)
+```
+
+
+```{r}
+plotTSNE(sce_merge,colour_by = "batch")
+```
+
+```{r}
+dec2 <- modelGeneVar(sce_rpi2)
+dec4 <- modelGeneVar(sce_rpi4)
+dec6 <- modelGeneVar(sce_rpi6)
+dec7 <- modelGeneVar(sce_rpi7)
+dec8 <- modelGeneVar(sce_rpi8)
+dec10 <- modelGeneVar(sce_rpi10)
+
+combined.dec <- combineVar(dec2, dec4,dec6,dec7,dec8,dec10)
+chosen.hvgs <- combined.dec$bio > 0.02
+sum(chosen.hvgs)
+```
+
+
+
+```{r}
+mnn.out <- fastMNN(sce_rpi2, 
+                   sce_rpi4, 
+                   sce_rpi6,
+                   sce_rpi7,
+                   sce_rpi8,
+                   sce_rpi10, d=50, k=20, subset.row=chosen.hvgs,
+    BSPARAM=BiocSingular::RandomParam(deferred=TRUE))
+mnn.out
+```
+
+```{r}
+library(readxl)
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19 <-  read_excel("Naik.SCORE_NN168_SeqPrimer layout_Nov19.xlsx",sheet = "Sample & Index", skip = 3)
+
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19 = Naik_SCORE_NN168_SeqPrimer_layout_Nov19[,c("Well position","Cell Type/Descriptor","(separate index read)...7","<R660/20-A>: CD11c-APC","<V450/50-A>: SiglecH-PB","<V660/20-A>: MHC-II-BV650","<R780/60-A>: XCR1-APC Cy7","<B695/40-A>: Sirpa-BB700","<Y780/60-A>: CCR9-PE Cy7","<V510/50-A>: Live/dead-AB(BV525)","<Y610/20-A>: Virus-mCherry","<B530/30-A>: Cas9-GFP")]
+
+
+colnames(Naik_SCORE_NN168_SeqPrimer_layout_Nov19) = c("well_position","conditions","Illumina_index","CD11c","SiglecH","MHC2","XCR1","Sirpa","CCR9","Live_dead","mCherry","Cas9")
+
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19$Illumina_index = gsub(" ", "", Naik_SCORE_NN168_SeqPrimer_layout_Nov19$Illumina_index, fixed = TRUE)
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19 = Naik_SCORE_NN168_SeqPrimer_layout_Nov19[!is.na(Naik_SCORE_NN168_SeqPrimer_layout_Nov19$well_position),]
+
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19 = Naik_SCORE_NN168_SeqPrimer_layout_Nov19[!(Naik_SCORE_NN168_SeqPrimer_layout_Nov19$conditions=="No Cell"),]
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19$cell_name = paste(Naik_SCORE_NN168_SeqPrimer_layout_Nov19$Illumina_index,Naik_SCORE_NN168_SeqPrimer_layout_Nov19$well_position,sep="_")
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19 = Naik_SCORE_NN168_SeqPrimer_layout_Nov19[!is.na(Naik_SCORE_NN168_SeqPrimer_layout_Nov19$CD11c),]
+summary(Naik_SCORE_NN168_SeqPrimer_layout_Nov19)
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19$conditions = sapply(strsplit(Naik_SCORE_NN168_SeqPrimer_layout_Nov19$conditions,"_"),function(x){x[1]})
+
+Naik_SCORE_NN168_SeqPrimer_layout_Nov19[,c("CD11c","SiglecH","MHC2","XCR1","Sirpa","CCR9","Live_dead","mCherry","Cas9")] = log10(Naik_SCORE_NN168_SeqPrimer_layout_Nov19[,c("CD11c","SiglecH","MHC2","XCR1","Sirpa","CCR9","Live_dead","mCherry","Cas9")]+111)
+```
+
+
+```{r}
+mnn.out = mnn.out[,colnames(mnn.out) %in% Naik_SCORE_NN168_SeqPrimer_layout_Nov19$cell_name]
+sce_merge = sce_merge[,colnames(sce_merge) %in% Naik_SCORE_NN168_SeqPrimer_layout_Nov19$cell_name]
+tmp = as.data.frame(colData(mnn.out))
+tmp$cell_name = rownames(tmp)
+tmp = tmp %>% left_join(Naik_SCORE_NN168_SeqPrimer_layout_Nov19)
+colData(mnn.out) = DataFrame(tmp)
+```
+
+
+
+```{r}
+mnn.out <- runTSNE(mnn.out, dimred="corrected")
+mnn.out$batch <- factor(mnn.out$batch)
+colnames(mnn.out) = mnn.out$cell_name
+plotTSNE(mnn.out, colour_by="conditions")
+plotTSNE(mnn.out, colour_by="Illumina_index")
+plotTSNE(mnn.out, colour_by="CD11c")
+plotTSNE(mnn.out, colour_by="SiglecH")
+plotTSNE(mnn.out, colour_by="SiglecH")
+```
+
+
+
+
+
+```{r}
+snn.gr <- buildSNNGraph(mnn.out, use.dimred="corrected")
+clusters.mnn <- igraph::cluster_louvain(snn.gr)$membership
+mnn.out$clusters = as.factor(clusters.mnn)
+tab.mnn <- table(Cluster=clusters.mnn, Batch=mnn.out$batch)
+tab.mnn
+```
+
+```{r}
+plotTSNE(mnn.out, colour_by="clusters")
+```
+
+
+```{r}
+# We can combine this with 'direction='.
+m.out <- findMarkers(sce_merge, clusters.mnn, block=sce_merge$batch,
+    direction="up", lfc=1)
+
+get_marker_per_clusters = function(x,topn=10){
+  all_markers = c()
+  for (i in 1:length(x)) {
+    tmp = as.data.frame(x[[i]])
+    tmp = tmp[order(tmp$FDR),]
+    tmp = tmp[1:topn,]
+    all_markers = c(all_markers, rownames(tmp))
+  }
+  all_markers
+}
+marker_genes = get_marker_per_clusters(m.out,20)
+marker_genes = c(marker_genes,"Bcor")
+marker_genes = unique(marker_genes)
+marker_genes = marker_genes[marker_genes %in% rownames(assay(mnn.out,"reconstructed"))]
+```
+
+
+```{r,fig.height=8,fig.width=6}
+tmp_expr = assay(mnn.out,"reconstructed")[marker_genes,]
+tmp_expr = scale(tmp_expr)
+tmp_expr[tmp_expr<(-3)]=-3
+tmp_expr[tmp_expr>3]=3
+colnames(tmp_expr) = colnames(mnn.out)
+```
+
+```{r,eval=FALSE}
+gene_id_df = as.data.frame(sce_merge@int_elementMetadata[,c("ensembl_gene_id","external_gene_name")])
+
+mnn.out_ensembl = as.data.frame(rownames(mnn.out)) %>% left_join(gene_id_df,by=c("rownames(mnn.out)"="external_gene_name"))
+
+mm.pairs <- readRDS(system.file("exdata", "mouse_cycle_markers.rds", package="scran"))
+
+# Using Ensembl IDs to match up with the annotation in 'mm.pairs'.
+assignments <- cyclone(mnn.out, mm.pairs, gene.names=mnn.out_ensembl$ensembl_gene_id,assay.type="reconstructed")
+mnn.out$cell_cycle_phase = assignments$phases
+```
+
+
+```{r,eval=FALSE}
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+getPalette1 = colorRampPalette(brewer.pal(12, "Set3"))
+getPalette2 = colorRampPalette(brewer.pal(6, "Dark2"))
+
+anno_df = as.data.frame(colData(mnn.out))
+rownames(anno_df) = anno_df$cell_name
+anno_df = anno_df[,c("cell_cycle_phase","clusters","conditions","Illumina_index","CD11c","SiglecH","MHC2","XCR1","Sirpa","CCR9")]
+
+col_batch = getPalette1(length(unique(anno_df$Illumina_index)))
+names(col_batch) =  unique(anno_df$Illumina_index)
+
+col_cluster = getPalette(nlevels(mnn.out$clusters))
+names(col_cluster) =  levels(mnn.out$clusters)
+
+col_conditions = getPalette2(length(unique(anno_df$conditions)))
+names(col_conditions) =  unique(anno_df$conditions)
+
+annotation_colors = list(
+  clusters=col_cluster,
+  conditions=col_conditions,
+  cell_cycle_phase=c("G1"="red","G2M"="blue","S"="green"),
+  Illumina_index = col_batch,
+  CD11c=BlueAndRed(),
+  SiglecH=BlueAndRed(),
+  MHC2=BlueAndRed(),
+  XCR1=BlueAndRed(),
+  Sirpa=BlueAndRed(),
+  CCR9=BlueAndRed()
+)
+
+
+pheatmap::pheatmap(tmp_expr[,order(mnn.out$clusters)],
+         cluster_cols = FALSE, 
+         cluster_rows = FALSE,
+         annotation_col = anno_df,
+         annotation_colors=annotation_colors,
+         show_colnames = FALSE,
+         color=PurpleAndYellow(),
+         fontsize_row=7,
+         filename="heatmap_with_annotation.pdf",width = 10,height = 12)
+
+rtsne_out = Rtsne::Rtsne(t(tmp_expr),check_duplicates = FALSE,pca = FALSE,dims=1,theta = 0.1)
+rtsne_out_ge = Rtsne::Rtsne((tmp_expr),check_duplicates = FALSE,pca = FALSE,dims=1,theta = 0.1,perplexity = 10)
+
+pheatmap::pheatmap(tmp_expr[order(rtsne_out_ge$Y),order(rtsne_out$Y)],
+         cluster_cols = FALSE, 
+         cluster_rows = FALSE,
+         annotation_col = anno_df,
+         annotation_colors=annotation_colors,
+         show_colnames = FALSE,
+         color=PurpleAndYellow(),
+         fontsize_row=7,
+         filename="heatmap_with_annotation_od.pdf",width = 10,height = 12)
+```
+
+
+
+```{r}
+get_immgen_similarity = function(sce,immgen_mtx,immgen_celltype,sel_genes=c()){
+  comm_genes = intersect(rownames(sce),rownames(immgen_mtx))
+  if (length(sel_genes)>0){
+    comm_genes = intersect(comm_genes,sel_genes)
+  }
+  if(length(comm_genes)<100){
+    warning("There are less than 100 common gene IDs between Immgen and SCE data.")
+  }
+  
+  if(any(!(immgen_celltype %in% colnames(immgen_mtx)))){
+    warning(paste0("the following Immgen cell types cannot be found: ",paste(immgen_celltype[!(immgen_celltype %in% colnames(immgen_mtx))], collapse = '')))
+  }
+  
+  sce_expr_sub = as.matrix( logcounts(sce[comm_genes,]))
+  immgen_sub = immgen_mtx[comm_genes, colnames(immgen_mtx) %in% immgen_celltype]
+  p.val_mat = c()
+  for (i in 1:ncol(immgen_sub))
+  {
+    p.val_vec = apply(sce_expr_sub, 2, function(x){
+    cor.test(x,immgen_sub[,i],
+           method = "pearson",
+           alternative = "greater",exact=FALSE)$p.value})
+    p.val_mat = rbind(p.val_mat,-log10(p.val_vec))
+  }
+  p.val_mat[p.val_mat>quantile(p.val_mat,0.95)] = quantile(p.val_mat,0.95)
+  rownames(p.val_mat) = colnames(immgen_sub)
+  colnames(p.val_mat) = colnames(sce_expr_sub)
+  return(p.val_mat)
+}
+```
+
+```{r}
+immgen_expression = readRDS("/Users/tian.l/Dropbox/research/DL162/immgen_expression.Rds")
+logcounts(mnn.out) = assay(mnn.out,"reconstructed")
+p.val_mat = get_immgen_similarity(mnn.out,immgen_expression,immgen_celltype=c("SC_CDP_BM","SC_GMP_BM","SC_CMP_BM","SC_MDP_BM","proB_CLP_BM","SC_STSL_BM","DC_8pos_Sp","DC_4pos_Sp","DC_pDC_8pos_Sp","SC_MPP34F_BM","GN_BM","DC_IIhilangpos103pos11blo_SLN"))
+p.val_mat_all = get_immgen_similarity(mnn.out,immgen_expression,immgen_celltype=colnames(immgen_expression))
+```
+
+```{r}
+p.val_mat = scale(p.val_mat)
+pheatmap::pheatmap(p.val_mat[,order(rtsne_out$Y)], 
+                   cluster_cols = FALSE, 
+                   scale="none",
+                   show_colnames=FALSE,
+                            annotation_col = anno_df,
+         annotation_colors=annotation_colors,
+                   filename="heatmap_immgen.pdf",width = 10,height = 11)
+pheatmap::pheatmap(p.val_mat_all[,order(rtsne_out$Y)], 
+                   cluster_cols = FALSE, 
+                   scale="column",
+                   show_colnames=FALSE,
+                            annotation_col = anno_df,
+         annotation_colors=annotation_colors,
+                   filename="heatmap_immgen_all_celltype.png",width = 10,height = 25)
+```
+
+
+```{r}
+mnn.out$Immgen_pDC = p.val_mat["DC_pDC_8pos_Sp",]
+mnn.out$Immgen_cDC1 = p.val_mat["DC_8pos_Sp",]
+mnn.out$Immgen_cDC2 = p.val_mat["DC_4pos_Sp",]
+mnn.out$Immgen_CLP = p.val_mat["proB_CLP_BM",]
+mnn.out$Immgen_CMP = p.val_mat["SC_CMP_BM",]
+mnn.out$Immgen_CDP = p.val_mat["SC_CDP_BM",]
+mnn.out$Immgen_MDP = p.val_mat["SC_MDP_BM",]
+mnn.out$Immgen_GN = p.val_mat["GN_BM",]
+```
+
+
+
+```{r}
+pdf("all_tSNE_markers.pdf")
+plotTSNE(mnn.out, colour_by="clusters")
+plotTSNE(mnn.out, colour_by="conditions")
+plotTSNE(mnn.out, colour_by="Illumina_index")
+plotTSNE(mnn.out, colour_by="CD11c")
+plotTSNE(mnn.out, colour_by="SiglecH")
+plotTSNE(mnn.out, colour_by="MHC2")
+plotTSNE(mnn.out, colour_by="XCR1")
+plotTSNE(mnn.out, colour_by="Sirpa")
+plotTSNE(mnn.out, colour_by="CCR9")
+dev.off()
+pdf("all_tSNE_Immgens.pdf")
+plotTSNE(mnn.out, colour_by="clusters")
+plotTSNE(mnn.out, colour_by="conditions")
+plotTSNE(mnn.out, colour_by="Immgen_pDC")
+plotTSNE(mnn.out, colour_by="Immgen_cDC1")
+plotTSNE(mnn.out, colour_by="Immgen_cDC2")
+plotTSNE(mnn.out, colour_by="Immgen_CLP")
+plotTSNE(mnn.out, colour_by="Immgen_CMP")
+plotTSNE(mnn.out, colour_by="Immgen_CDP")
+plotTSNE(mnn.out, colour_by="Immgen_MDP")
+plotTSNE(mnn.out, colour_by="Immgen_GN")
+dev.off()
+```
+
+cluster 6 cDC1
+cluster 7 cDC2
+cluster 5 pDC
+
+cluster 2 ??
+
+```{r}
+tab.mnn <- as.data.frame(table(Cluster=clusters.mnn, Batch=mnn.out$conditions))
+tab.mnn
+```
+
+```{r}
+tab.mnn[tab.mnn$Batch=="Cas9","Freq"] = tab.mnn[tab.mnn$Batch=="Cas9","Freq"]/sum(tab.mnn[tab.mnn$Batch=="Cas9","Freq"])
+tab.mnn[tab.mnn$Batch=="WT","Freq"] = tab.mnn[tab.mnn$Batch=="WT","Freq"]/sum(tab.mnn[tab.mnn$Batch=="WT","Freq"])
+tab.mnn
+```
+
+
+```{r}
+ggplot(data=tab.mnn,aes(x=Cluster,y=Freq,fill=Batch))+
+  geom_bar(stat="identity",position = "dodge")+
+  theme_bw() + 
+  scale_fill_manual(values = brewer.pal(6, "Dark2")[2:3])+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))
+ggsave(filename = "cluster_proportions.pdf")
+```
+
+
+
+
+```{r,message=FALSE,warning=FALSE}
+srt = CreateSeuratObject(assay(mnn.out,"reconstructed"),assay = "reconstructed")
+srt = ScaleData(srt,verbose = FALSE)
+srt = RunPCA(srt,assay="reconstructed",features=rownames(srt),verbose = FALSE)
+srt <- FindNeighbors(object = srt, k.param=10, dims = 1:20, verbose = FALSE)
+srt <- FindClusters(object = srt, verbose = FALSE)
+srt <- RunUMAP(object = srt, dims = 1:20, verbose = FALSE)
+DimPlot(srt,label=TRUE)
+```
+
+
+```{r,fig.width=10,fig.height=8}
+immg_df = t(p.val_mat)
+srt@meta.data = cbind(srt@meta.data,immg_df)
+
+srt$condition="Bcor KO"
+srt$condition[srt$orig.ident %in% c("RPI10","RPI8")] = "WT"
+srt$condition = as.factor(srt$condition)
+
+srt@meta.data = cbind(srt@meta.data,as.data.frame(colData(mnn.out)[,c("CD11c","SiglecH","MHC2","XCR1","Sirpa","CCR9","Live_dead","mCherry","Cas9")]))
+
+FeaturePlot(srt,features = colnames(immg_df))
+```
+
+
+```{r,fig.width=10,fig.height=8}
+FeaturePlot(srt,pt.size=0.1,features = c("CD11c","SiglecH","MHC2","XCR1","Sirpa","CCR9","Live_dead","mCherry","Cas9"),min.cutoff="q2",max.cutoff="q98")
+```
+
+
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+library(edgeR)
+conditions = srt$condition[srt$reconstructed_snn_res.0.8==2]
+batch = srt$orig.ident[srt$reconstructed_snn_res.0.8==2]
+design = model.matrix(~ conditions)
+
+allcounts = DGEList(counts=counts(sce_merge)[,srt$reconstructed_snn_res.0.8==2])
+all_cnt = estimateDisp(allcounts, robust=TRUE)
+
+fit = glmFit(all_cnt, design)
+lrt = glmLRT(fit, coef=2)
+tt = topTags(lrt,n=200,p.value=0.05)
+pDC_table = topTags(lrt,n=Inf)@.Data[[1]]
+tt = tt@.Data[[1]]
+tt = tt[order(tt$logFC)[c(1:50,150:200)],]
+ko_hi_pDC = rownames(tt)[1:50]
+```
+
+```{r,fig.height=8,fig.width=6}
+tmp_expr = log2(counts(sce_merge)[rownames(tt),srt$reconstructed_snn_res.0.8==2]+1)
+tmp_expr = t(scale(t(tmp_expr)))
+tmp_expr[tmp_expr<(-2.5)] = -2.5
+tmp_expr[tmp_expr>2.5] = 2.5
+pheatmap(tmp_expr,annotation_col = data.frame(conditions=conditions,batch=batch),
+         color=PurpleAndYellow(),
+         show_colnames = FALSE,
+         fontsize = 7,
+         filename="DE_KOWT_pDC.pdf",width = 6,height = 8)
+```
+
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+library(edgeR)
+conditions = srt$condition[srt$reconstructed_snn_res.0.8==0]
+batch = srt$orig.ident[srt$reconstructed_snn_res.0.8==0]
+design = model.matrix(~ conditions)
+
+allcounts = DGEList(counts=counts(sce_merge)[,srt$reconstructed_snn_res.0.8==0])
+all_cnt = estimateDisp(allcounts, robust=TRUE)
+
+fit = glmFit(all_cnt, design)
+lrt = glmLRT(fit, coef=2)
+tt = topTags(lrt,n=200,p.value=0.05)
+cDC2_table = topTags(lrt,n=Inf)@.Data[[1]]
+tt = tt@.Data[[1]]
+tt = tt[order(tt$logFC)[c(1:50,150:200)],]
+ko_hi_cDC2 = rownames(tt)[1:50]
+```
+
+```{r}
+plot(cDC2_table$logFC,-log10(cDC2_table$PValue))
+```
+
+
+```{r}
+plot(cDC2_table$logFC,-log10(cDC2_table$PValue))
+```
+
+```{r,fig.height=8,fig.width=6}
+tmp_expr = log2(counts(sce_merge)[rownames(tt),srt$reconstructed_snn_res.0.8==0]+1)
+tmp_expr = t(scale(t(tmp_expr)))
+tmp_expr[tmp_expr<(-2.5)] = -2.5
+tmp_expr[tmp_expr>2.5] = 2.5
+pheatmap(tmp_expr,annotation_col = data.frame(conditions=conditions,batch=batch),
+         show_colnames = FALSE,
+         fontsize = 7,
+         filename="DE_KOWT_cDC2.pdf",width = 6,height = 8)
+```
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+library(edgeR)
+conditions = srt$condition[srt$reconstructed_snn_res.0.8==3]
+batch = srt$orig.ident[srt$reconstructed_snn_res.0.8==3]
+design = model.matrix(~ conditions)
+
+allcounts = DGEList(counts=counts(sce_merge)[,srt$reconstructed_snn_res.0.8==3])
+all_cnt = estimateDisp(allcounts, robust=TRUE)
+
+fit = glmFit(all_cnt, design)
+lrt = glmLRT(fit, coef=2)
+tt = topTags(lrt,n=200,p.value=0.05)
+tt = tt@.Data[[1]]
+cDC1_table = topTags(lrt,n=Inf)@.Data[[1]]
+tt = tt[order(tt$logFC)[c(1:50,150:200)],]
+ko_hi_cDC1 = rownames(tt)[1:50]
+```
+
+```{r,fig.height=8,fig.width=6}
+tmp_expr = log2(counts(sce_merge)[rownames(tt),srt$reconstructed_snn_res.0.8==3]+1)
+tmp_expr = t(scale(t(tmp_expr)))
+tmp_expr[tmp_expr<(-2.5)] = -2.5
+tmp_expr[tmp_expr>2.5] = 2.5
+pheatmap(tmp_expr,annotation_col = data.frame(conditions=conditions,batch=batch),show_colnames = FALSE, fontsize = 7,
+         filename="DE_KOWT_cDC1.pdf",width = 6,height = 8)
+```
+
+
+```{r}
+library(VennDiagram)
+venn.diagram(x=list(ko_hi_cDC1,ko_hi_cDC2,ko_hi_pDC),
+             category.names = c("cDC1" , "cDC2 " , "pDC"),
+             filename = 'venn_diagramm_commDE.png',
+             resolution=300)
+
+Reduce(intersect,list(ko_hi_cDC1,ko_hi_cDC2,ko_hi_pDC))
+```
+```{r}
+write.csv(ko_hi_pDC,quote=FALSE,row.names = FALSE)
+```
+
+
+```{r}
+ggplot(data=NULL,aes(x=srt$condition,y=log2(counts(sce_merge)["Bcl2",]+1)))+
+  geom_violin()+
+  geom_jitter(size=0.5,alpha=0.5)+
+  theme_bw()
+```
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+library(edgeR)
+cluster = srt$reconstructed_snn_res.0.8
+batch = mnn.out$batch
+design = model.matrix(~ 0+ cluster+batch)
+
+allcounts = DGEList(counts=counts(sce_merge))
+all_cnt = estimateDisp(allcounts, robust=TRUE)
+
+contrasts <- makeContrasts(
+  pDC_cDC1 = cluster2-cluster3,
+  cDC1_cDC2= cluster3-cluster0,
+  cDC2_pDC= cluster0-cluster2,
+  levels = colnames(design))
+
+fit = glmFit(all_cnt, design)
+lrt = glmLRT(fit, contrast=contrasts[,1])
+pDC_cDC1_marker = topTags(lrt,n=Inf)@.Data[[1]]
+
+lrt = glmLRT(fit, contrast=contrasts[,2])
+cDC1_cDC2_marker = topTags(lrt,n=Inf)@.Data[[1]]
+
+lrt = glmLRT(fit, contrast=contrasts[,3])
+cDC2_pDC_marker = topTags(lrt,n=Inf)@.Data[[1]]
+```
+
+```{r}
+plot(cDC2_pDC_marker$logFC,-log10(cDC2_pDC_marker$PValue))
+```
+
+```{r}
+vol_plot_df = data.frame(logFC=c(cDC1_table$logFC,
+                                 cDC2_table$logFC,
+                                 pDC_table$logFC,
+                                 cDC1_cDC2_marker$logFC,
+                                 cDC2_pDC_marker$logFC,
+                                 pDC_cDC1_marker$logFC),
+                         p_value=c(cDC1_table$FDR,
+                                 cDC2_table$FDR,
+                                 pDC_table$FDR,
+                                 cDC1_cDC2_marker$FDR,
+                                 cDC2_pDC_marker$FDR,
+                                 pDC_cDC1_marker$FDR),
+                         test=c(rep("KO_cDC1 vs WT_cDC1",nrow(cDC1_table)),
+                                rep("KO_cDC2 vs WT_cDC2",nrow(cDC2_table)),
+                                rep("KO_pDC vs WT_pDC",nrow(pDC_table)),
+                                rep("cDC1 vs cDC2",nrow(cDC1_cDC2_marker)),
+                                rep("cDC2 vs pDC",nrow(cDC2_pDC_marker)),
+                                rep("pDC vs cDC1",nrow(pDC_cDC1_marker))))
+
+vol_plot_df$p_value = -log10(vol_plot_df$p_value)
+vol_plot_df$p_value[vol_plot_df$p_value>(50)] = 50
+
+vol_plot_df$test = factor(vol_plot_df$test,levels = c("KO_cDC1 vs WT_cDC1","KO_cDC2 vs WT_cDC2","KO_pDC vs WT_pDC","cDC1 vs cDC2","cDC2 vs pDC","pDC vs cDC1"))
+
+ggplot(data=vol_plot_df,aes(x=logFC,y=p_value))+
+  geom_point(size=1,alpha=0.7)+
+  facet_wrap(. ~ test,nrow=2,ncol=3)+
+  theme_bw()+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), panel.border = element_blank(),axis.line = element_line(colour = "black"),
+axis.text.x=element_blank())
+```
+
+
+
+
+```{r,fig.width=6,fig.height=8}
+srt.markers = FindAllMarkers(srt,logfc.threshold = 0.02,slot = "scale.data",verbose = FALSE)
+top10 <- srt.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_diff)
+DoHeatmap(srt, features = top10$gene)
+```
+
+```{r}
+tmp_mat = srt@assays$reconstructed@scale.data[unique(top10$gene),]
+tmp_mat[tmp_mat>2.5] = 2.5
+tmp_mat[tmp_mat<(-2.5)] = -2.5
+
+tmp_func = function(x){
+  l = quantile(x,0.02)
+  h = quantile(x,0.98)
+  x[x<l] = l
+  x[x>h] = h
+  x
+}
+
+anno_df = data.frame(CD11c=srt$CD11c,
+                     SiglecH=srt$SiglecH,
+                     MHC2=srt$MHC2,
+                     XCR1=srt$XCR1,
+                     Sirpa=srt$Sirpa,
+                     STSL=srt$SC_STSL_BM,
+                     MPP=srt$SC_MPP34F_BM,
+                     CDP=srt$SC_CDP_BM,
+                     CLP=srt$proB_CLP_BM,
+                     migratory_DC=srt$DC_IIhilangpos103pos11blo_SLN,
+                     GN=srt$GN_BM,
+                     cDC1=srt$DC_8pos_Sp,
+                     cDC2=srt$DC_4pos_Sp,
+                     pDC=srt$DC_pDC_8pos_Sp,
+                     condition=srt$condition,
+                     clusters=srt$reconstructed_snn_res.0.8,
+                     stringsAsFactors = FALSE)
+
+anno_df[c("CD11c","SiglecH","MHC2","XCR1","Sirpa")] = apply(anno_df[c("CD11c","SiglecH","MHC2","XCR1","Sirpa")],2,tmp_func)
+
+
+getPalette = colorRampPalette(brewer.pal(9, "Set3"))
+colc = getPalette(nlevels(srt$reconstructed_snn_res.0.8))
+names(colc) = levels(srt$reconstructed_snn_res.0.8)
+
+cond_col = c("#613CB3","#D95F02")
+names(cond_col) = c("WT","Bcor KO")
+annotation_colors = list(
+  clusters=colc,
+  CD11c=BlueAndRed(),
+  SiglecH=BlueAndRed(),
+  MHC2=BlueAndRed(),
+  XCR1=BlueAndRed(),
+  Sirpa=BlueAndRed(),
+  STSL=BlueAndRed(),
+  MPP=BlueAndRed(),
+  CDP=BlueAndRed(),
+  CLP=BlueAndRed(),
+  migratory_DC=BlueAndRed(),
+  GN=BlueAndRed(),
+  cDC1=BlueAndRed(),
+  cDC2=BlueAndRed(),
+  pDC=BlueAndRed(),
+  condition=cond_col
+)
+
+pheatmap(tmp_mat[,order(srt$reconstructed_snn_res.0.8)],
+         cluster_cols = FALSE, 
+         cluster_rows = FALSE,
+         annotation_col = anno_df,
+         annotation_colors=annotation_colors,
+         show_colnames = FALSE,
+         color=PurpleAndYellow(),
+         fontsize = 8,
+         filename="figs/heatmap_with_facs_Dach1_DE.pdf",width = 7,height = 9)
+```
+
+
+```{r}
+srt_sub = SubsetData(srt,ident.remove=c("6",7))
+srt_sub = RunPCA(srt_sub,assay="reconstructed",features=rownames(srt_sub),verbose = FALSE)
+srt_sub <- FindNeighbors(object = srt_sub, k.param=10, dims = 1:20, verbose = FALSE)
+srt_sub <- FindClusters(object = srt_sub, verbose = FALSE)
+srt_sub <- RunUMAP(object = srt_sub, dims = 1:20, verbose = FALSE)
+DimPlot(srt_sub,label=TRUE)
+```
+
+
+
+
+```{r,fig.width=6,fig.height=6}
+srt_sub.markers = FindAllMarkers(srt_sub,logfc.threshold = 0.02,slot = "scale.data",verbose = FALSE)
+top10 <- srt_sub.markers %>% group_by(cluster) %>% top_n(n = 6, wt = avg_diff)
+DoHeatmap(srt_sub, features = top10$gene)
+```
+
+
+```{r}
+tmp_mat = srt_sub@assays$reconstructed@scale.data[unique(top10$gene),]
+tmp_mat[tmp_mat>2.5] = 2.5
+tmp_mat[tmp_mat<(-2.5)] = -2.5
+
+tmp_func = function(x){
+  l = quantile(x,0.02)
+  h = quantile(x,0.98)
+  x[x<l] = l
+  x[x>h] = h
+  x
+}
+
+anno_df = data.frame(CD11c=srt_sub$CD11c,
+                     SiglecH=srt_sub$SiglecH,
+                     MHC2=srt_sub$MHC2,
+                     XCR1=srt_sub$XCR1,
+                     CCR9=srt_sub$CCR9,
+                     Sirpa=srt_sub$Sirpa,
+                     MPP=srt_sub$SC_MPP34F_BM,
+                     CDP=srt_sub$SC_CDP_BM,
+                     CLP=srt_sub$proB_CLP_BM,
+                     cDC1=srt_sub$DC_8pos_Sp,
+                     cDC2=srt_sub$DC_4pos_Sp,
+                     pDC=srt_sub$DC_pDC_8pos_Sp,
+                     condition=srt_sub$condition,
+                     clusters=srt_sub$reconstructed_snn_res.0.8,
+                     stringsAsFactors = FALSE)
+
+anno_df[c("CD11c","SiglecH","MHC2","XCR1","CCR9","Sirpa")] = apply(anno_df[c("CD11c","SiglecH","MHC2","XCR1","CCR9","Sirpa")],2,tmp_func)
+
+
+getPalette = colorRampPalette(brewer.pal(8, "Dark2"))
+colc = getPalette(nlevels(srt_sub$reconstructed_snn_res.0.8))
+names(colc) = levels(srt_sub$reconstructed_snn_res.0.8)
+
+cond_col = c("#613CB3","#D95F02")
+names(cond_col) = c("WT","Bcor KO")
+annotation_colors = list(
+  clusters=colc,
+  CD11c=BlueAndRed(),
+  SiglecH=BlueAndRed(),
+  MHC2=BlueAndRed(),
+  XCR1=BlueAndRed(),
+  CCR9=BlueAndRed(),
+  Sirpa=BlueAndRed(),
+  STSL=BlueAndRed(),
+  MPP=BlueAndRed(),
+  CDP=BlueAndRed(),
+  CLP=BlueAndRed(),
+  migratory_DC=BlueAndRed(),
+  GN=BlueAndRed(),
+  cDC1=BlueAndRed(),
+  cDC2=BlueAndRed(),
+  pDC=BlueAndRed(),
+  condition=cond_col
+)
+
+pheatmap(tmp_mat[,order(srt_sub$reconstructed_snn_res.0.8)],
+         cluster_cols = FALSE, 
+         cluster_rows = FALSE,
+         annotation_col = anno_df,
+         annotation_colors=annotation_colors,
+         show_colnames = FALSE,
+         color=PurpleAndYellow(),
+         fontsize = 8,
+         filename="figs/heatmap_sel_cells.pdf",width = 4,height =5.5)
+```
+
+```{r}
+table(anno_df$clusters, anno_df$condition)/rowSums(table(anno_df$clusters, anno_df$condition))
+```
+
+
+```{r}
+cDC1_biased_genes <- read.csv("~/Dropbox/research/sis_seq/cDC1_biased_genes.csv", stringsAsFactors=FALSE)
+cDC2_biased_genes <- read.csv("~/Dropbox/research/sis_seq/cDC2_biased_genes.csv", stringsAsFactors=FALSE)
+pDC_biased_genes_new <- read.csv("~/Dropbox/research/sis_seq/pDC_biased_genes_new.csv", stringsAsFactors=FALSE)
+
+top10$cDC1 = FALSE
+top10$cDC1[top10$gene %in% cDC1_biased_genes$gene_names] = TRUE
+top10$cDC2 = FALSE
+top10$cDC2[top10$gene %in% cDC2_biased_genes$gene_names] = TRUE
+top10$pDC = FALSE
+top10$pDC[top10$gene %in% pDC_biased_genes_new$gene_names] = TRUE
+```
+
+
+```{r}
+top10[top10$cDC1,]
+```
+
+```{r}
+top10[top10$cDC2,]
+```
+
+
+```{r}
+top10[top10$pDC,]
+```
+
+
+```{r}
+library(igraph)
+library(XGR)
+#getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+#colcol = getPalette(nlevels(srt_sub$reconstructed_snn_res.0.8))
+x = xConverter(srt_sub@graphs$reconstructed_snn, from = "dgCMatrix",
+to ="igraph",verbose = FALSE)
+l <- layout_with_fr(x,dim=2,niter=2000,start.temp=740)
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.color=srt_sub$reconstructed_snn_res.0.8,palette=colc)
+legend('topleft',legend=levels(srt_sub$reconstructed_snn_res.0.8),col=colc,cex=1.3,pch=16,title="clusters")
+```
+
+```{r}
+library(readr)
+barcode_annotation <- read_csv("~/Dropbox/research/sis_seq/NN168/barcode_annotation.csv")
+bat = sapply(strsplit(colnames(srt_sub),"_"),function(x){x[1]})
+idx = sapply(strsplit(colnames(srt_sub),"_"),function(x){x[2]})
+tmp_anno = data.frame(batch=bat,position=idx, dim1=l[,1],dim2=l[,2],stringsAsFactors = FALSE)
+
+tmp_anno = tmp_anno %>% left_join(barcode_annotation,by=c("position"="samplename"))
+tmp_anno$name = paste(tmp_anno$batch,tmp_anno$index,sep="_")
+tmp_anno = tmp_anno[,c("name","dim1","dim2")]
+write.csv(tmp_anno,file="batch_cellbarcode.csv",row.names = FALSE)
+```
+
+```{r}
+pdf("figs/fdl_sel_clusters.pdf")
+
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.color=srt_sub$reconstructed_snn_res.0.8,palette=colc)
+legend('bottomleft',legend=levels(srt_sub$reconstructed_snn_res.0.8),col=colc,cex=1.3,pch=16,title="clusters")
+dev.off()
+```
+
+
+```{r}
+
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.color=srt_sub$condition,palette=c("#613CB3","#D95F02"))
+legend('topleft',legend=levels(srt_sub$condition),col=c("#613CB3","#D95F02"),pch=16,title="clusters")
+```
+
+
+```{r}
+
+plot_df = data.frame(x=l[,1],y=l[,2],col=srt_sub$condition)
+plot_df = plot_df[order(plot_df$col),]
+
+ggplot(data=plot_df,aes(x=x,y=y,col=col))+
+  geom_point(alpha=0.7,size=0.5,show.legend = F)+
+  scale_color_manual(values = c("#D95F02","#613CB3"))+
+  facet_wrap(~col,nrow=1,ncol=2)+
+  labs(x="",y="")+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), panel.border = element_blank(),axis.line = element_line(colour = "black"),
+axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+ggsave("figs/WTKO_fdl.pdf",width = 5,height = 2.5)
+```
+
+
+
+```{r}
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,vertex.color=srt_sub$condition,palette=c("#613CB3","grey70"))
+legend('topleft',legend=levels(srt_sub$condition),col=c("#613CB3","grey70"),pch=16,title="clusters")
+```
+
+
+
+```{r}
+library(SDMTools)
+
+pdf("Bcor_FDLayout_Immgen.pdf")
+val = srt_sub$SC_STSL_BM
+sub = "SC_STSL_BM"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$SC_MPP34F_BM
+sub = "SC_MPP34F_BM"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$SC_CMP_BM
+sub = "SC_CMP_BM"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$SC_GMP_BM
+sub = "SC_GMP_BM"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$SC_CDP_BM
+sub = "SC_CDP_BM"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$SC_MDP_BM
+sub = "SC_MDP_BM"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$proB_CLP_BM
+sub = "proB_CLP_BM"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+
+val = srt_sub$DC_4pos_Sp
+sub = "DC_4pos_Sp"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$DC_8pos_Sp
+sub = "DC_8pos_Sp"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$DC_pDC_8pos_Sp
+sub = "DC_pDC_8pos_Sp"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+
+val = srt_sub$GN_BM
+sub = "GN_BM"
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+                limits=c(round(min(val), 2),round(max(val),2)),
+                cols=BlueAndRed(10),pch=16)
+dev.off()
+```
+
+
+```{r}
+pdf("figs/XCR1_fdl.pdf",width = 4,height = 4)
+val = anno_df$XCR1
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+#legend.gradient(cbind(x =c(0.8,0.9,0.9,0.8), y =c(1.0,1.0,0.8,0.8)),
+#                limits=c(round(min(val), 2),round(max(val),2)),
+#                cols=BlueAndRed(10),pch=16)
+dev.off()
+
+pdf("figs/SiglecH_fdl.pdf",width = 4,height = 4)
+val = anno_df$SiglecH
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/Sirpa_fdl.pdf",width = 4,height = 4)
+val = anno_df$Sirpa
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/MHC2_fdl.pdf",width = 4,height = 4)
+val = anno_df$MHC2
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/CCR9_fdl.pdf",width = 4,height = 4)
+val = anno_df$CCR9
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/CD11c_fdl.pdf",width = 4,height = 4)
+val = anno_df$CD11c
+val[val<1] = 1
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+
+
+pdf("figs/cDC1_fdl.pdf",width = 4,height = 4)
+val = anno_df$cDC1
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/cDC2_fdl.pdf",width = 4,height = 4)
+val = anno_df$cDC2
+val[val>6] = 6
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/pDC_fdl.pdf",width = 4,height = 4)
+val = anno_df$pDC
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/CDP_fdl.pdf",width = 4,height = 4)
+val = anno_df$CDP
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/CLP_fdl.pdf",width = 4,height = 4)
+val = anno_df$CLP
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+
+pdf("figs/MPP_fdl.pdf",width = 4,height = 4)
+val = anno_df$MPP
+sub = ""
+plot(x, layout=l, vertex.label=NA,vertex.size=3,vertex.frame.color=NA,edge.color="grey90",edge.width=0.5,vertex.color=cut(val,10),palette=BlueAndRed(10),main=sub )
+dev.off()
+```
+
+
+
+```{r}
+library(slingshot)
+sls = slingshot(l , clusterLabels = srt_sub$reconstructed_snn_res.0.8,start.clus=1)
+
+plot(l, col=colc[srt_sub$reconstructed_snn_res.0.8], pch=16, asp = 1)
+lines(sls, lwd=2, col='black')
+```
+
+
+```{r}
+library(slingshot)
+sls = slingshot(srt_sub@reductions$umap@cell.embeddings , clusterLabels = srt_sub$reconstructed_snn_res.0.8,start.clus=1)
+
+plot(srt_sub@reductions$umap@cell.embeddings, col=colc[srt_sub$reconstructed_snn_res.0.8], pch=16, asp = 1)
+lines(sls, lwd=2, col='black')
+```
+
+
+```{r}
+ddd = as.matrix(dist(srt_sub@reductions$pca@cell.embeddings[,1:20]))
+ddd = ddd/max(ddd)
+ddd = 1-ddd
+#ddd = as.matrix(cluster::daisy(srt_sub@reductions$pca@cell.embeddings[,1:20]))
+```
+
+
+```{r}
+pDC_dist = colMeans(ddd[srt_sub$reconstructed_snn_res.0.8==1,])
+cDC1_dist = colMeans(ddd[srt_sub$reconstructed_snn_res.0.8==5,])
+cDC2_dist = colMeans(ddd[srt_sub$reconstructed_snn_res.0.8==2,])
+
+dist_mat = cbind(pDC_dist,cDC1_dist,cDC2_dist)
+#dist_mat = dist_mat/rowSums(dist_mat)
+```
+
+
+```{r}
+library(plotly)
+#plot_ly(x=dist_mat[,1],y=dist_mat[,2],z=dist_mat[,3])
+```
+
+
+```{r}
+
+tmp_wrt = srt_sub.markers[srt_sub.markers$p_val_adj<0.01 & srt_sub.markers$avg_diff>0,] %>% group_by(cluster) %>% top_n(n=60,wt=avg_diff)
+write.csv(tmp_wrt,file="supp_table_top60_marker_per_clusters.csv",row.names = FALSE)
+
+write.csv(Reduce(intersect,list(clu1$gene,clu3$gene,clu5$gene)),quote=FALSE,row.names = FALSE)
+```
+
+
+```{r}
+library(topGO)
+gene_vec = rep(0,length(rownames(srt_sub)))
+names(gene_vec) = rownames(srt_sub)
+gene_vec[names(gene_vec) %in% tmp_wrt$gene[tmp_wrt$cluster==1]]=1
+sampleGOdata <- new("topGOdata",
+                    description = "test", ontology = "BP",
+                    allGenes = gene_vec, geneSelectionFun = function(a_g){a_g == 1},
+                    nodeSize = 5,
+                    annot=annFUN.org, mapping="org.Mm.eg.db", ID = "SYMBOL")
+
+res = runTest(sampleGOdata, algorithm = "classic", statistic = "fisher")
+tabl = GenTable(sampleGOdata, classic = res,
+                orderBy = "weight", ranksOf = "classic", topNodes = 10)
+
+ann.genes = function(x){genesInTerm(sampleGOdata, whichGO=tabl$GO.ID[x])[[1]][scoresInTerm(sampleGOdata, whichGO=tabl$GO.ID[x])[[1]] != 0]}
+tabl$genes = unlist(lapply(lapply(1:10,ann.genes),function(x){paste(x[x %in% names(gene_vec)[gene_vec == 1]],collapse = ',')}))
+tabl
+tabl_clu2 = tabl
+```
+
+
+```{r}
+gene_vec = rep(0,length(rownames(srt_sub)))
+names(gene_vec) = rownames(srt_sub)
+gene_vec[names(gene_vec) %in% clu3$gene]=1
+sampleGOdata <- new("topGOdata",
+                    description = "test", ontology = "BP",
+                    allGenes = gene_vec, geneSelectionFun = function(a_g){a_g == 1},
+                    nodeSize = 5,
+                    annot=annFUN.org, mapping="org.Mm.eg.db", ID = "SYMBOL")
+
+res = runTest(sampleGOdata, algorithm = "classic", statistic = "fisher")
+tabl = GenTable(sampleGOdata, classic = res,
+                orderBy = "weight", ranksOf = "classic", topNodes = 10)
+
+ann.genes = function(x){genesInTerm(sampleGOdata, whichGO=tabl$GO.ID[x])[[1]][scoresInTerm(sampleGOdata, whichGO=tabl$GO.ID[x])[[1]] != 0]}
+tabl$genes = unlist(lapply(lapply(1:10,ann.genes),function(x){paste(x[x %in% names(gene_vec)[gene_vec == 1]],collapse = ',')}))
+tabl
+```
+
+```{r}
+gene_vec = rep(0,length(rownames(srt_sub)))
+names(gene_vec) = rownames(srt_sub)
+gene_vec[names(gene_vec) %in% clu5$gene]=1
+sampleGOdata <- new("topGOdata",
+                    description = "test", ontology = "BP",
+                    allGenes = gene_vec, geneSelectionFun = function(a_g){a_g == 1},
+                    nodeSize = 5,
+                    annot=annFUN.org, mapping="org.Mm.eg.db", ID = "SYMBOL")
+
+res = runTest(sampleGOdata, algorithm = "classic", statistic = "fisher")
+tabl = GenTable(sampleGOdata, classic = res,
+                orderBy = "weight", ranksOf = "classic", topNodes = 10)
+
+ann.genes = function(x){genesInTerm(sampleGOdata, whichGO=tabl$GO.ID[x])[[1]][scoresInTerm(sampleGOdata, whichGO=tabl$GO.ID[x])[[1]] != 0]}
+tabl$genes = unlist(lapply(lapply(1:10,ann.genes),function(x){paste(x[x %in% names(gene_vec)[gene_vec == 1]],collapse = ',')}))
+tabl
+```
+
+Sorry Luyi I forgot,
+
+Here's the total number of Cherry+ cells per sample (what I sorted on).
+Cas9_1: 95584
+Cas9_2: 107500
+WT_1: 54136
+WT_2: 25979
+I left the number separate but since we pulled the 2 different samples together feel free to sum them.
+
+Cheers.
+
+Sara.
+
+```{r}
+
+#ratio = ((95584+107500)/(54136+25979))*(1/2)
+
+cell_num_df = as.data.frame(table(srt_sub$condition,srt_sub$reconstructed_snn_res.0.8))
+cell_num_df[cell_num_df$Var1=="Bcor KO","Freq"] = cell_num_df[cell_num_df$Var1=="Bcor KO","Freq"]/sum(cell_num_df[cell_num_df$Var1=="Bcor KO","Freq"])
+cell_num_df[cell_num_df$Var1=="WT","Freq"] = cell_num_df[cell_num_df$Var1=="WT","Freq"]/sum(cell_num_df[cell_num_df$Var1=="WT","Freq"])
+
+cell_num_df[cell_num_df$Var1=="WT","Freq"]=((54136+25979)*cell_num_df[cell_num_df$Var1=="WT","Freq"])/(25*0.5715)
+cell_num_df[cell_num_df$Var1=="Bcor KO","Freq"]=((95584+107500)*cell_num_df[cell_num_df$Var1=="Bcor KO","Freq"])/(25*0.5715)
+```
+
+```{r}
+ggplot(data=cell_num_df,aes(x=factor(Var2),y=Freq,fill=Var1))+
+  geom_bar(stat="identity",position = "dodge")+
+  theme_bw()
+```
+
+```{r}
+
+cell_num_df = cell_num_df[cell_num_df$Var2 %in% c(1,3,5),]
+ggplot(data=cell_num_df,aes(x=1,y=Freq,fill=Var1))+
+  geom_bar(stat="identity",position = "dodge",show.legend = F)+
+  scale_fill_manual(values = c("#D95F02","#613CB3"))+
+  labs(y="",fill="",x="")+
+  coord_flip()+
+  theme_bw()+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), panel.border = element_blank(),axis.line = element_line(colour = "black"),
+axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+ggsave("WT_Cas9_progenitor_cell_count.pdf",width = 3,height = 1.5)
+```
+
